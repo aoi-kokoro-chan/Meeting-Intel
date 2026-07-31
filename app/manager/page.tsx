@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Memory } from "@/lib/memory";
+import { REPS, REP_COLORS } from "@/lib/reps";
 
 export const dynamic = "force-dynamic";
 
 type MeetingRow = {
   id: string;
   meeting_type: string;
+  rep_name: string | null;
   scheduled_at: string | null;
   status: string;
   triage_verdict: string | null;
@@ -20,6 +22,7 @@ type ProspectRow = {
   id: string;
   company_name: string;
   website: string | null;
+  owner_rep: string | null;
   stage: string;
   deal_health: string;
   memory: Partial<Memory> | null;
@@ -60,7 +63,25 @@ function latestSignalReason(p: ProspectRow): string {
   return "No calls logged yet";
 }
 
-export default async function ManagerView() {
+function RepBadge({ name, size = "h-6 w-6 text-[11px]" }: { name: string | null; size?: string }) {
+  if (!name) return <span className="text-sm text-slate-400">—</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${REP_COLORS[name] ?? "bg-slate-500"}`}>
+        {name[0]}
+      </span>
+      <span className="text-sm text-slate-700">{name}</span>
+    </span>
+  );
+}
+
+export default async function ManagerView({
+  searchParams,
+}: {
+  searchParams: Promise<{ rep?: string }>;
+}) {
+  const { rep: repParam } = await searchParams;
+  const repFilter = repParam && REPS.includes(repParam) ? repParam : null;
   let prospects: ProspectRow[] = [];
   let loadError: string | null = null;
   try {
@@ -78,38 +99,118 @@ export default async function ManagerView() {
     loadError = (err as Error).message;
   }
 
-  const active = prospects.filter((p) => !["disqualified", "closed_lost"].includes(p.stage));
-  const advancing = prospects.filter((p) => p.deal_health === "advancing");
-  const troubled = prospects.filter((p) => p.deal_health === "stalling" || p.deal_health === "at_risk");
-  const allMeetings = prospects.flatMap((p) => p.meetings);
-  const flaggedMeetings = allMeetings.filter(
-    (m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution"
-  );
+  // Table + stat cards respect the rep filter; signal cards stay global.
+  const visible = repFilter ? prospects.filter((p) => p.owner_rep === repFilter) : prospects;
 
-  const sorted = [...prospects].sort((a, b) => {
+  const active = visible.filter((p) => !["disqualified", "closed_lost"].includes(p.stage));
+  const advancing = visible.filter((p) => p.deal_health === "advancing");
+  const troubled = visible.filter((p) => p.deal_health === "stalling" || p.deal_health === "at_risk");
+  const flaggedMeetings = visible
+    .flatMap((p) => p.meetings)
+    .filter((m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution");
+
+  const allActive = prospects.filter((p) => !["disqualified", "closed_lost"].includes(p.stage));
+
+  const sorted = [...visible].sort((a, b) => {
     const h = (HEALTH_SORT[a.deal_health] ?? 2) - (HEALTH_SORT[b.deal_health] ?? 2);
     if (h !== 0) return h;
     return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
   });
 
-  // Coaching signals — plain code, no LLM
-  const signals: string[] = [];
-  if (flaggedMeetings.length > 0) {
-    signals.push(
-      `${flaggedMeetings.length} meeting${flaggedMeetings.length === 1 ? "" : "s"} flagged by triage — check reps aren't spending time on bad-fit calls.`
-    );
-  }
-  for (const p of active) {
-    if (!p.memory?.next_step && p.meetings.some((m) => m.status === "done")) {
-      signals.push(`${p.company_name}: no next step captured after ${p.meetings.filter((m) => m.status === "done").length} call(s) — deal is drifting.`);
+  // Manager signal sections — plain code, no LLM
+  const WEEK_MS = 7 * 86400000;
+  const SENIOR_ROLE =
+    /\b(head|director|vp|chief|cfo|ceo|cmo|coo|founder|owner|president|gm)\b|general manager|vice president/i;
+  const daysSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  const doneCount = (p: ProspectRow) => p.meetings.filter((m) => m.status === "done").length;
+  const hasSeniorStakeholder = (p: ProspectRow) =>
+    (p.memory?.stakeholders ?? []).some((s) => s.role && SENIOR_ROLE.test(s.role));
+
+  const repOf = (p: ProspectRow) => p.owner_rep ?? "Unassigned";
+
+  const highlights: string[] = [];
+  for (const p of allActive) {
+    if (p.deal_health === "advancing") {
+      highlights.push(`${repOf(p)} — ${p.company_name} is advancing${p.memory?.next_step ? `: ${p.memory.next_step}` : "."}`);
     }
   }
-  for (const p of active) {
-    if ((p.memory?.commitments ?? []).length === 0 && p.meetings.some((m) => m.status === "done")) {
-      signals.push(`${p.company_name}: no commitments captured — nobody owes anybody anything, which usually means no momentum.`);
+  for (const p of allActive) {
+    if (p.stage !== "discovery" && Date.now() - new Date(p.updated_at).getTime() < WEEK_MS) {
+      highlights.push(`${repOf(p)} — ${p.company_name} progressed to ${p.stage.replace("_", " ")} stage this week.`);
     }
   }
-  const coachingSignals = signals.slice(0, 5);
+  for (const p of allActive) {
+    const n = (p.memory?.commitments ?? []).length;
+    if (n > 0) {
+      highlights.push(`${repOf(p)} — ${n} commitment${n === 1 ? "" : "s"} on the table at ${p.company_name}.`);
+    }
+  }
+
+  const watchouts: string[] = [];
+  for (const p of allActive) {
+    if (p.deal_health === "stalling" || p.deal_health === "at_risk") {
+      watchouts.push(
+        `${repOf(p)} — ${p.company_name} is ${p.deal_health.replace("_", " ")}, ${daysSince(p.updated_at)} days since last activity.`
+      );
+    }
+  }
+  for (const p of allActive) {
+    if (!p.memory?.next_step && doneCount(p) > 0) {
+      watchouts.push(`${repOf(p)} — no next step recorded at ${p.company_name} after ${doneCount(p)} call${doneCount(p) === 1 ? "" : "s"}.`);
+    }
+  }
+  for (const p of prospects) {
+    if (p.meetings.some((m) => m.triage_verdict === "do_not_take" && m.status === "upcoming")) {
+      watchouts.push(`${repOf(p)} — meeting at ${p.company_name} flagged "do not take" is still on the calendar.`);
+    }
+  }
+
+  // Rep learnings grouped by rep so a manager sees who needs coaching on what.
+  const learningsByRep = new Map<string, string[]>();
+  const addLearning = (rep: string, text: string) => {
+    if (!learningsByRep.has(rep)) learningsByRep.set(rep, []);
+    learningsByRep.get(rep)!.push(text);
+  };
+  for (const p of allActive) {
+    if (doneCount(p) >= 2 && !hasSeniorStakeholder(p)) {
+      addLearning(repOf(p), `No budget owner identified after ${doneCount(p)} meetings (${p.company_name}).`);
+    }
+    if (doneCount(p) > 0 && (p.memory?.commitments ?? []).length === 0) {
+      addLearning(repOf(p), `No commitments captured in ${doneCount(p)} call${doneCount(p) === 1 ? "" : "s"} (${p.company_name}).`);
+    }
+    if (p.meetings.some((m) => m.meeting_type === "closing" && m.status === "upcoming") && !hasSeniorStakeholder(p)) {
+      addLearning(repOf(p), `Closing call booked without a decision-maker present (${p.company_name}).`);
+    }
+  }
+  // Cap at 3 items total across all reps, preserving grouping.
+  let learningBudget = 3;
+  const learningGroups: { rep: string; items: string[] }[] = [];
+  for (const [rep, items] of learningsByRep) {
+    if (learningBudget <= 0) break;
+    const take = items.slice(0, learningBudget);
+    learningBudget -= take.length;
+    learningGroups.push({ rep, items: take });
+  }
+
+  const stringSections = [
+    {
+      title: "Key highlights",
+      icon: "✦",
+      items: highlights.slice(0, 3),
+      card: "border-emerald-200 bg-emerald-50",
+      heading: "text-emerald-700",
+      text: "text-emerald-900",
+    },
+    {
+      title: "Watchouts",
+      icon: "⚠",
+      items: watchouts.slice(0, 3),
+      card: "border-amber-300 bg-amber-50",
+      heading: "text-amber-700",
+      text: "text-amber-900",
+    },
+  ].filter((s) => s.items.length > 0);
+  const hasSignals = stringSections.length > 0 || learningGroups.length > 0;
 
   const stats = [
     { label: "Active deals", value: active.length, cls: "text-slate-900" },
@@ -146,12 +247,38 @@ export default async function ManagerView() {
       </div>
 
       <section className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Deals — at-risk first
-        </h2>
-        {prospects.length === 0 && !loadError ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Deals — at-risk first
+          </h2>
+          <div className="flex gap-1.5">
+            <Link
+              href="/manager"
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                !repFilter ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"
+              }`}
+            >
+              All
+            </Link>
+            {REPS.map((r) => (
+              <Link
+                key={r}
+                href={`/manager?rep=${r}`}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
+                  repFilter === r ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"
+                }`}
+              >
+                <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${REP_COLORS[r] ?? "bg-slate-500"}`}>
+                  {r[0]}
+                </span>
+                {r}
+              </Link>
+            ))}
+          </div>
+        </div>
+        {sorted.length === 0 && !loadError ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-            <p className="font-medium text-slate-700">No deals yet.</p>
+            <p className="font-medium text-slate-700">{repFilter ? `No deals owned by ${repFilter} yet.` : "No deals yet."}</p>
             <p className="mt-1 text-sm text-slate-500">
               Head to the{" "}
               <Link href="/" className="font-medium text-blue-600 hover:underline">
@@ -162,8 +289,9 @@ export default async function ManagerView() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="hidden grid-cols-[1.4fr_0.8fr_0.8fr_0.5fr_0.8fr_1.2fr_1.6fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+            <div className="hidden grid-cols-[1.3fr_0.8fr_0.7fr_0.8fr_0.4fr_0.8fr_1.1fr_1.4fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
               <span>Company</span>
+              <span>Owner</span>
               <span>Stage</span>
               <span>Health</span>
               <span>Calls</span>
@@ -173,10 +301,13 @@ export default async function ManagerView() {
             </div>
             {sorted.map((p) => (
               <details key={p.id} className="group border-b border-slate-100 last:border-b-0">
-                <summary className="grid cursor-pointer grid-cols-2 gap-3 px-5 py-4 hover:bg-slate-50 md:grid-cols-[1.4fr_0.8fr_0.8fr_0.5fr_0.8fr_1.2fr_1.6fr] md:items-center [&::-webkit-details-marker]:hidden">
+                <summary className="grid cursor-pointer grid-cols-2 gap-3 px-5 py-4 hover:bg-slate-50 md:grid-cols-[1.3fr_0.8fr_0.7fr_0.8fr_0.4fr_0.8fr_1.1fr_1.4fr] md:items-center [&::-webkit-details-marker]:hidden">
                   <span className="font-semibold text-slate-900">
                     {p.company_name}
                     {p.website && <span className="ml-2 hidden text-xs font-normal text-slate-400 lg:inline">{p.website}</span>}
+                  </span>
+                  <span>
+                    <RepBadge name={p.owner_rep} />
                   </span>
                   <span className="text-sm capitalize text-slate-600">{p.stage.replace("_", " ")}</span>
                   <span>
@@ -202,6 +333,7 @@ export default async function ManagerView() {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold capitalize">{m.meeting_type}</span>
                           <span className="text-xs text-slate-400">{fmtDate(m.scheduled_at ?? m.created_at)}</span>
+                          {m.rep_name && <span className="text-xs text-slate-400">· {m.rep_name}</span>}
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
                             m.triage_verdict === "do_not_take"
                               ? "bg-red-100 text-red-700"
@@ -229,18 +361,51 @@ export default async function ManagerView() {
         )}
       </section>
 
-      {coachingSignals.length > 0 && (
+      {hasSignals && (
         <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Coaching signals</h2>
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-            <ul className="space-y-2">
-              {coachingSignals.map((s, i) => (
-                <li key={i} className="flex gap-2 text-sm text-amber-900">
-                  <span className="shrink-0">→</span>
-                  <span>{s}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="grid gap-4 md:grid-cols-3">
+            {stringSections.map((s) => (
+              <div key={s.title} className={`rounded-2xl border p-5 ${s.card}`}>
+                <h2 className={`mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide ${s.heading}`}>
+                  <span aria-hidden>{s.icon}</span>
+                  {s.title}
+                </h2>
+                <ul className="space-y-2">
+                  {s.items.map((item, i) => (
+                    <li key={i} className={`text-sm leading-relaxed ${s.text}`}>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {learningGroups.length > 0 && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-700">
+                  <span aria-hidden>💡</span>
+                  Rep learnings
+                </h2>
+                <div className="space-y-3">
+                  {learningGroups.map((g) => (
+                    <div key={g.rep}>
+                      <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-blue-800">
+                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${REP_COLORS[g.rep] ?? "bg-slate-500"}`}>
+                          {g.rep[0]}
+                        </span>
+                        {g.rep}
+                      </p>
+                      <ul className="space-y-1">
+                        {g.items.map((item, i) => (
+                          <li key={i} className="text-sm leading-relaxed text-blue-900">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}

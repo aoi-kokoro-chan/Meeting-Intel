@@ -2,6 +2,62 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { REPS, DEFAULT_REP, REP_COOKIE, REP_COLORS } from "@/lib/reps";
+
+function getRepCookie(): string | null {
+  const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${REP_COOKIE}=([^;]+)`));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function setRepCookie(rep: string) {
+  document.cookie = `${REP_COOKIE}=${encodeURIComponent(rep)}; path=/; max-age=31536000; SameSite=Lax`;
+}
+
+function RepSwitcher({ rep, onSwitch }: { rep: string; onSwitch: (r: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm hover:border-slate-400"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${REP_COLORS[rep] ?? "bg-slate-500"}`}>
+          {rep[0]}
+        </span>
+        <span className="text-left">
+          <span className="block text-sm font-semibold leading-tight">{rep}</span>
+          <span className="block text-[11px] leading-tight text-slate-400">Your deals</span>
+        </span>
+        <span className="text-xs text-slate-400">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+            {REPS.map((r) => (
+              <button
+                key={r}
+                onClick={() => {
+                  setOpen(false);
+                  if (r !== rep) onSwitch(r);
+                }}
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 ${r === rep ? "font-semibold" : ""}`}
+              >
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${REP_COLORS[r] ?? "bg-slate-500"}`}>
+                  {r[0]}
+                </span>
+                <span className="flex-1">{r}</span>
+                {r === rep && <span className="text-slate-400">✓</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 type Meeting = {
   id: string;
@@ -94,38 +150,170 @@ function BriefSection({ title, items, text }: { title: string; items?: string[];
   );
 }
 
-function BriefView({ brief }: { brief: Brief }) {
+const PANEL_SECTIONS = [
+  { id: "snapshot", label: "Snapshot" },
+  { id: "know", label: "What we know" },
+  { id: "last", label: "Last time" },
+  { id: "objections", label: "Objections" },
+  { id: "talk", label: "Talk track" },
+  { id: "questions", label: "Questions" },
+  { id: "watch", label: "Watch out" },
+];
+
+function BriefPanel({
+  meeting,
+  company,
+  onClose,
+  initialSection,
+}: {
+  meeting: Meeting;
+  company: string;
+  onClose: () => void;
+  initialSection?: string;
+}) {
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const panelScrollRef = useRef<HTMLDivElement>(null);
+  const brief = meeting.brief;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  const scrollToSection = useCallback((id: string) => {
+    const el = document.getElementById(`brief-sec-${id}`);
+    const container = panelScrollRef.current;
+    if (!el || !container) return;
+    // scrollIntoView({behavior:"smooth"}) is unreliable while body scroll is
+    // locked, so scroll the panel's own container directly.
+    const top = Math.max(0, container.scrollTop + el.getBoundingClientRect().top - container.getBoundingClientRect().top - 48);
+    container.scrollTo({ top, behavior: "smooth" });
+    // Some environments silently drop smooth programmatic scrolls — jump if so.
+    setTimeout(() => {
+      if (Math.abs(container.scrollTop - top) > 4) container.scrollTo({ top });
+    }, 350);
+  }, []);
+
+  useEffect(() => {
+    if (!initialSection) return;
+    const t = setTimeout(() => {
+      scrollToSection(initialSection);
+      setHighlight(initialSection);
+      setTimeout(() => setHighlight(null), 1600);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [initialSection, scrollToSection]);
+
+  if (!brief) return null;
+
+  const hasContent: Record<string, boolean> = {
+    snapshot: Boolean(brief.headline?.trim() || brief.company_snapshot?.trim()),
+    know: (brief.what_we_know?.length ?? 0) > 0,
+    last: Boolean(brief.last_meeting_recap?.trim()),
+    objections: (brief.likely_objections?.length ?? 0) > 0,
+    talk: (brief.talk_track?.length ?? 0) > 0,
+    questions: (brief.questions_to_ask?.length ?? 0) > 0,
+    watch: Boolean(brief.watch_out?.trim()),
+  };
+
+  const wrap = (id: string, node: React.ReactNode) => (
+    <div
+      id={`brief-sec-${id}`}
+      className={`scroll-mt-14 rounded-xl transition-shadow duration-500 ${highlight === id ? "ring-2 ring-blue-400" : ""}`}
+    >
+      {node}
+    </div>
+  );
+
+  const dateStr = new Date(meeting.scheduled_at ?? meeting.created_at).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
   return (
-    <div className="space-y-3">
-      {brief.ai_unavailable && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          AI briefly rate-limited — showing what we know. Try again in a minute for a full brief.
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="absolute right-0 top-0 flex h-full w-full flex-col bg-slate-50 shadow-2xl sm:w-[480px]">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              <span className="capitalize">{meeting.meeting_type}</span> brief · {company}
+            </p>
+            <p className="text-xs text-slate-400">{dateStr}</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close brief"
+            className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
         </div>
-      )}
-      {brief.headline && (
-        <div className="rounded-xl bg-slate-900 p-4 text-white">
-          <p className="text-base font-semibold leading-snug">{brief.headline}</p>
+        <div ref={panelScrollRef} className="flex-1 overflow-y-auto">
+          <div className="sticky top-0 z-10 flex gap-1.5 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-4 py-2 backdrop-blur">
+            {PANEL_SECTIONS.filter((s) => hasContent[s.id]).map((s) => (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                className="shrink-0 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-slate-500 hover:text-slate-900"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-3 p-4">
+            {brief.ai_unavailable && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                AI briefly rate-limited when this brief was generated — it shows what we knew at the time.
+              </div>
+            )}
+            {hasContent.snapshot &&
+              wrap(
+                "snapshot",
+                <div className="space-y-3">
+                  {brief.headline && (
+                    <div className="rounded-xl bg-slate-900 p-4 text-white">
+                      <p className="text-base font-semibold leading-snug">{brief.headline}</p>
+                    </div>
+                  )}
+                  <BriefSection title="Company snapshot" text={brief.company_snapshot} />
+                </div>
+              )}
+            {hasContent.know && wrap("know", <BriefSection title="What we know" items={brief.what_we_know} />)}
+            {hasContent.last && wrap("last", <BriefSection title="Last meeting recap" text={brief.last_meeting_recap} />)}
+            {(brief.open_threads?.length ?? 0) > 0 && wrap("threads", <BriefSection title="Open threads" items={brief.open_threads} />)}
+            {hasContent.objections && wrap("objections", <BriefSection title="Likely objections" items={brief.likely_objections} />)}
+            {hasContent.talk && wrap("talk", <BriefSection title="Talk track" items={brief.talk_track} />)}
+            {hasContent.questions && wrap("questions", <BriefSection title="Questions to ask" items={brief.questions_to_ask} />)}
+            {hasContent.watch &&
+              wrap(
+                "watch",
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-600">Watch out</h3>
+                  <p className="text-sm text-red-900">{brief.watch_out}</p>
+                </div>
+              )}
+          </div>
         </div>
-      )}
-      <BriefSection title="Company snapshot" text={brief.company_snapshot} />
-      <BriefSection title="What we know" items={brief.what_we_know} />
-      <BriefSection title="Last meeting recap" text={brief.last_meeting_recap} />
-      <BriefSection title="Open threads" items={brief.open_threads} />
-      <BriefSection title="Likely objections" items={brief.likely_objections} />
-      <BriefSection title="Talk track" items={brief.talk_track} />
-      <BriefSection title="Questions to ask" items={brief.questions_to_ask} />
-      {brief.watch_out?.trim() && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-600">Watch out</h3>
-          <p className="text-sm text-red-900">{brief.watch_out}</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
 
 export default function RepView() {
+  const [rep, setRep] = useState(DEFAULT_REP);
+  const [ownerNotice, setOwnerNotice] = useState<string | null>(null);
   const [company, setCompany] = useState("");
+  const [companyError, setCompanyError] = useState<string | null>(null);
   const [website, setWebsite] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactRole, setContactRole] = useState("");
@@ -137,10 +325,13 @@ export default function RepView() {
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const [triage, setTriage] = useState<{ verdict: string; reason: string } | null>(null);
-  const [blockedMeetingId, setBlockedMeetingId] = useState<string | null>(null);
+  const [blockedMeeting, setBlockedMeeting] = useState<Meeting | null>(null);
+  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [briefCompany, setBriefCompany] = useState("");
+  const [inferredSite, setInferredSite] = useState<string | null>(null);
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<{ meeting: Meeting; company: string; section?: string } | null>(null);
 
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -151,6 +342,7 @@ export default function RepView() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const resultRef = useRef<HTMLDivElement>(null);
+  const companyRef = useRef<HTMLInputElement>(null);
 
   const loadProspects = useCallback(async () => {
     try {
@@ -165,8 +357,36 @@ export default function RepView() {
   }, []);
 
   useEffect(() => {
+    const c = getRepCookie();
+    if (c && REPS.includes(c)) {
+      setRep(c);
+    } else {
+      setRepCookie(DEFAULT_REP);
+    }
     loadProspects();
   }, [loadProspects]);
+
+  function switchRep(next: string) {
+    setRepCookie(next);
+    setRep(next);
+    // Clear rep-specific transient state and reload scoped data.
+    setBrief(null);
+    setTriage(null);
+    setBlockedMeeting(null);
+    setCurrentMeeting(null);
+    setActiveMeetingId(null);
+    setNotes("");
+    setNotesResult(null);
+    setOwnerNotice(null);
+    setInferredSite(null);
+    setWarnings([]);
+    setError(null);
+    setPanel(null);
+    setExpanded(null);
+    setListLoaded(false);
+    setProspects([]);
+    loadProspects();
+  }
 
   useEffect(() => {
     if (!loading) return;
@@ -179,23 +399,32 @@ export default function RepView() {
     return () => clearInterval(t);
   }, [loading]);
 
-  async function generateBrief(meetingId: string, companyName: string) {
+  async function generateBrief(meeting: Meeting, companyName: string) {
     const res = await fetch("/api/brief", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meeting_id: meetingId }),
+      body: JSON.stringify({ meeting_id: meeting.id }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Brief generation failed");
+    const withBrief: Meeting = { ...meeting, brief: data.brief };
     setBrief(data.brief);
     setBriefCompany(companyName);
-    setActiveMeetingId(meetingId);
+    setActiveMeetingId(meeting.id);
+    setCurrentMeeting(withBrief);
+    setPanel({ meeting: withBrief, company: companyName });
     setWarnings((w) => [...w, ...(data.warnings ?? [])]);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!company.trim() || loading) return;
+    if (loading) return;
+    if (!company.trim()) {
+      setCompanyError("Company name is required");
+      companyRef.current?.focus();
+      return;
+    }
+    setCompanyError(null);
     setLoading(true);
     setError(null);
     setWarnings([]);
@@ -203,7 +432,10 @@ export default function RepView() {
     setBrief(null);
     setNotes("");
     setNotesResult(null);
-    setBlockedMeetingId(null);
+    setBlockedMeeting(null);
+    setCurrentMeeting(null);
+    setInferredSite(null);
+    setOwnerNotice(null);
     try {
       const res = await fetch("/api/prospects", {
         method: "POST",
@@ -219,15 +451,17 @@ export default function RepView() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not create the meeting");
       setWarnings(data.warnings ?? []);
+      if (data.website_inferred && data.prospect?.website) setInferredSite(data.prospect.website);
+      if (data.account_owner && data.account_owner !== rep) setOwnerNotice(data.account_owner);
       const meeting = data.meeting;
       if (meeting.triage_verdict) {
         setTriage({ verdict: meeting.triage_verdict, reason: meeting.triage_reason });
       }
       if (meeting.triage_verdict === "do_not_take") {
-        setBlockedMeetingId(meeting.id);
+        setBlockedMeeting(meeting);
         setBriefCompany(data.prospect.company_name);
       } else {
-        await generateBrief(meeting.id, data.prospect.company_name);
+        await generateBrief(meeting, data.prospect.company_name);
       }
       loadProspects();
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -239,12 +473,12 @@ export default function RepView() {
   }
 
   async function handleBriefAnyway() {
-    if (!blockedMeetingId || loading) return;
+    if (!blockedMeeting || loading) return;
     setLoading(true);
     setError(null);
     try {
-      await generateBrief(blockedMeetingId, briefCompany);
-      setBlockedMeetingId(null);
+      await generateBrief(blockedMeeting, briefCompany);
+      setBlockedMeeting(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -280,16 +514,9 @@ export default function RepView() {
     }
   }
 
-  function reopenBrief(m: Meeting, p: Prospect) {
+  function reopenBrief(m: Meeting, p: Prospect, section?: string) {
     if (!m.brief) return;
-    setBrief(m.brief);
-    setBriefCompany(p.company_name);
-    setActiveMeetingId(m.id);
-    setTriage(m.triage_verdict ? { verdict: m.triage_verdict, reason: m.triage_reason ?? "" } : null);
-    setBlockedMeetingId(null);
-    setNotes(m.raw_notes ?? "");
-    setNotesResult(null);
-    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    setPanel({ meeting: m, company: p.company_name, section });
   }
 
   function addNotesToLatest(p: Prospect) {
@@ -298,8 +525,9 @@ export default function RepView() {
     setBrief(latest.brief);
     setBriefCompany(p.company_name);
     setActiveMeetingId(latest.id);
+    setCurrentMeeting(latest);
     setTriage(null);
-    setBlockedMeetingId(null);
+    setBlockedMeeting(null);
     setNotes(latest.raw_notes ?? "");
     setNotesResult(null);
     setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -315,22 +543,37 @@ export default function RepView() {
           <h1 className="text-2xl font-bold tracking-tight">Meeting Intelligence</h1>
           <p className="mt-1 text-sm text-slate-500">Briefs before the call. Memory after.</p>
         </div>
-        <Link href="/manager" className="mt-1 shrink-0 text-sm font-medium text-blue-600 hover:underline">
-          Manager view →
-        </Link>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <Link href="/manager" className="text-sm font-medium text-blue-600 hover:underline">
+            Manager view →
+          </Link>
+          <RepSwitcher rep={rep} onSwitch={switchRep} />
+        </div>
       </header>
 
       {/* Primary card: prep a brief */}
-      <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <form onSubmit={handleSubmit} noValidate className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold">Who are you meeting?</h2>
         <div className="space-y-3">
-          <input
-            className={inputCls}
-            placeholder="Company name (e.g. Elgi Equipments)"
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
-            required
-          />
+          <div>
+            <label htmlFor="company-name" className="mb-1 block text-sm font-medium text-slate-700">
+              Company name<span className="ml-0.5 text-red-500">*</span>
+            </label>
+            <input
+              id="company-name"
+              ref={companyRef}
+              className={`${inputCls} ${companyError ? "border-red-400" : ""}`}
+              placeholder="e.g. Elgi Equipments"
+              value={company}
+              onChange={(e) => {
+                setCompany(e.target.value);
+                if (companyError && e.target.value.trim()) setCompanyError(null);
+              }}
+              required
+              aria-invalid={Boolean(companyError)}
+            />
+            {companyError && <p className="mt-1 text-xs text-red-600">{companyError}</p>}
+          </div>
           <input
             className={inputCls}
             placeholder="Website — optional (e.g. elgi.com)"
@@ -372,7 +615,7 @@ export default function RepView() {
           </div>
           <button
             type="submit"
-            disabled={loading || !company.trim()}
+            disabled={loading}
             className="w-full rounded-xl bg-blue-600 py-3.5 text-base font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? loadingMsg : "Prep my brief"}
@@ -389,7 +632,13 @@ export default function RepView() {
 
       {/* Triage + brief + notes */}
       <div ref={resultRef} className="scroll-mt-4">
-        {triage?.verdict === "do_not_take" && blockedMeetingId && (
+        {ownerNotice && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            <span className="font-semibold">This account is owned by {ownerNotice}</span> — your meeting was added to
+            the company&apos;s shared memory, and it stays on {ownerNotice}&apos;s pipeline.
+          </div>
+        )}
+        {triage?.verdict === "do_not_take" && blockedMeeting && (
           <div className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4">
             <p className="font-semibold text-red-800">⛔ Skip this meeting — {triage.reason}</p>
             <button onClick={handleBriefAnyway} disabled={loading} className="mt-2 text-sm font-medium text-red-700 underline">
@@ -407,11 +656,26 @@ export default function RepView() {
         )}
 
         {brief && (
-          <section className="mt-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Your brief · {briefCompany}
-            </h2>
-            <BriefView brief={brief} />
+          <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">Your brief · {briefCompany}</p>
+                {inferredSite && (
+                  <p className="truncate text-xs text-slate-400">
+                    {inferredSite} <span className="italic">(auto-detected — correct it above if wrong)</span>
+                  </p>
+                )}
+                {brief.ai_unavailable && (
+                  <p className="text-xs text-amber-700">AI briefly rate-limited — showing what we know.</p>
+                )}
+              </div>
+              <button
+                onClick={() => currentMeeting && setPanel({ meeting: currentMeeting, company: briefCompany })}
+                className="shrink-0 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Open brief
+              </button>
+            </div>
           </section>
         )}
 
@@ -478,6 +742,9 @@ export default function RepView() {
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${HEALTH_DOT[p.deal_health] ?? HEALTH_DOT.unknown}`} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{p.company_name}</span>
+                    {p.website && (p.memory as { website_inferred?: boolean })?.website_inferred && (
+                      <span className="block truncate text-xs text-slate-400">{p.website} (auto-detected)</span>
+                    )}
                     <span className="block text-xs text-slate-400">
                       {p.meetings.length} meeting{p.meetings.length === 1 ? "" : "s"} · last activity {relativeTime(p.updated_at)}
                     </span>
@@ -531,6 +798,15 @@ export default function RepView() {
           </ul>
         )}
       </section>
+
+      {panel && (
+        <BriefPanel
+          meeting={panel.meeting}
+          company={panel.company}
+          initialSection={panel.section}
+          onClose={() => setPanel(null)}
+        />
+      )}
     </main>
   );
 }

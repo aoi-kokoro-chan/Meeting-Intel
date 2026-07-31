@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { askLLMJson, LLMUnavailableError } from "@/lib/groq";
 import { scrapeSite } from "@/lib/scrape";
+import { REP_COOKIE, resolveRep } from "@/lib/reps";
 
 export const maxDuration = 60;
 
@@ -12,9 +13,12 @@ Decide whether a sales rep should take an upcoming meeting. Rules:
 - Flag clearly unqualified prospects: no plausible budget for ~$800+/mo services, students, B2C hobbyists, wrong buyer persona.
 - Flag the wrong stakeholder for a closing call (e.g. a junior contact with no buying authority).
 - Prefer "caution" over "do_not_take" when uncertain.
-Return JSON: {"verdict": "go" | "caution" | "do_not_take", "reason": "<one sentence>"}`;
+- Use your own knowledge of this company if it is well-known (industry, size, what they do), even if the website scrape returned nothing. Only treat a company as unknown if it is genuinely obscure AND the scrape failed — a famous brand must never come back as "unknown".
 
-type TriageResult = { verdict: string; reason: string };
+If no website was provided, infer the most likely official domain from the company name (e.g. "American Express" -> "americanexpress.com").
+Return JSON: {"verdict": "go" | "caution" | "do_not_take", "reason": "<one sentence>", "inferred_domain": "<official domain like example.com, only when no website was provided, else null>"}`;
+
+type TriageResult = { verdict: string; reason: string; inferred_domain?: string | null };
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,6 +30,7 @@ export async function POST(req: NextRequest) {
 
     const db = supabaseAdmin();
     const warnings: string[] = [];
+    const currentRep = resolveRep(req.cookies.get(REP_COOKIE)?.value);
 
     // Upsert prospect by case-insensitive company name
     const { data: existing } = await db
@@ -50,6 +55,7 @@ export async function POST(req: NextRequest) {
           website: website?.trim() || null,
           contact_name: contact_name?.trim() || null,
           contact_role: contact_role?.trim() || null,
+          owner_rep: currentRep,
         })
         .select()
         .single();
@@ -65,6 +71,7 @@ export async function POST(req: NextRequest) {
       .insert({
         prospect_id: prospect.id,
         meeting_type,
+        rep_name: currentRep,
         scheduled_at: scheduled_at || new Date().toISOString(),
         status: "upcoming",
       })
@@ -112,6 +119,7 @@ export async function POST(req: NextRequest) {
     }
 
     let finalMeeting = meeting;
+    let websiteInferred = false;
     if (triage) {
       const { data: updatedMeeting } = await db
         .from("meetings")
@@ -120,20 +128,53 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
       if (updatedMeeting) finalMeeting = updatedMeeting;
+
+      // No website given: save the LLM-inferred domain (marked as inferred) and
+      // warm the scrape best-effort so the brief call has a readable site.
+      if (!prospect.website && triage.inferred_domain) {
+        const domain = String(triage.inferred_domain)
+          .replace(/^https?:\/\//i, "")
+          .replace(/^www\./i, "")
+          .split("/")[0]
+          .trim()
+          .toLowerCase();
+        if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(domain)) {
+          websiteInferred = true;
+          const memory = { ...(prospect.memory ?? {}), website_inferred: true };
+          const { data: p2 } = await db
+            .from("prospects")
+            .update({ website: domain, memory })
+            .eq("id", prospect.id)
+            .select()
+            .single();
+          if (p2) prospect = p2;
+          await scrapeSite(domain);
+        }
+      }
     }
 
-    return NextResponse.json({ prospect, meeting: finalMeeting, warnings });
+    return NextResponse.json({
+      prospect,
+      meeting: finalMeeting,
+      warnings,
+      website_inferred: websiteInferred,
+      // Company-level shared brain: another rep's account still gets this
+      // meeting attached, but ownership never silently transfers.
+      account_owner: prospect.owner_rep ?? null,
+    });
   } catch (err) {
     return NextResponse.json({ error: `Unexpected error: ${(err as Error).message}` }, { status: 500 });
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const db = supabaseAdmin();
+    const currentRep = resolveRep(req.cookies.get(REP_COOKIE)?.value);
     const { data: prospects, error } = await db
       .from("prospects")
       .select("*, meetings(*)")
+      .eq("owner_rep", currentRep)
       .order("updated_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     for (const p of prospects ?? []) {

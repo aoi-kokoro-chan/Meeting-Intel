@@ -17,7 +17,7 @@ const TYPE_GUIDANCE: Record<string, string> = {
 
 const BRIEF_SYSTEM = `You write pre-call briefs for sales reps at Gushwork, an AI-powered SEO/AEO agency (~$800-2000/mo) selling to B2B SMBs: manufacturers, industrial brands, logistics and engineering firms.
 
-Be specific and concrete. Use ONLY facts from the provided context — never invent stakeholders, quotes, or history. If this is meeting 2 or later, you MUST reference concrete facts from earlier meetings (names, objections, commitments, exact pains).
+Be specific and concrete. For meeting history, stakeholders, and quotes, use ONLY facts from the provided context — never invent them. For general company background, also use your own knowledge of this company if it is well-known (industry, size, what they do), even if the website scrape returned nothing — a famous brand must never be described as unknown; only say information is unavailable if the company is genuinely obscure AND the scrape failed. If this is meeting 2 or later, you MUST reference concrete facts from earlier meetings (names, objections, commitments, exact pains).
 
 Return JSON with exactly these keys:
 {
