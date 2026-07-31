@@ -55,14 +55,23 @@ async function main() {
       "CFO office wants cost-per-lead comparison against trade-show spend before approving",
     ],
     commitments: [
-      { who: "Rep", what: "Send case study of a similar industrial manufacturer + pricing in both $ and ₹", when: "by Friday" },
+      { who: "Rep", what: "Send ROI sheet + case study of a similar industrial manufacturer with pricing in both $ and ₹", when: "by Friday" },
       { who: "Arjun Nair", what: "Get Priya Venkat from CFO office to join the closing call", when: "next call" },
     ],
-    next_step: "Closing call with Arjun + CFO office in 2 days — bring case study and dual-currency pricing",
+    resolutions: [
+      "Burned by current agency's generic content — skeptical any agency can write credible technical content",
+    ],
+    verbatim_phrases: [
+      "we're invisible where our buyers actually look",
+      "engineers bounce off fluffy content",
+      "close before the Diwali freeze",
+    ],
+    next_step: "Closing call with Arjun + CFO office in 2 days — bring ROI sheet, case study and dual-currency pricing",
     last_sentiment: "positive",
     facts: [
       "Expanding aggressively in US/EU markets; Coimbatore HQ",
       "Wants to close before Diwali budget freeze",
+      "Decision process: Arjun recommends, CFO office signs off on annual contracts",
     ],
   };
 
@@ -183,7 +192,7 @@ async function main() {
         stakeholders: [{ name: "Priya Venkat", role: "CFO office", notes: "Joined demo, wants cost-per-lead proof vs trade shows" }],
         objections: ["Cost-per-lead must beat or justify itself against trade-show spend"],
         commitments: [
-          { who: "Rep", what: "Send case study of a similar industrial manufacturer + pricing in both $ and ₹", when: "by Friday" },
+          { who: "Rep", what: "Send ROI sheet + case study of a similar industrial manufacturer with pricing in both $ and ₹", when: "by Friday" },
           { who: "Arjun Nair", what: "Get Priya Venkat to join the closing call", when: "next call" },
         ],
         next_step: "Closing call with Arjun + CFO office — bring case study and dual-currency pricing",
@@ -223,6 +232,12 @@ async function main() {
     ],
     objections: ["'Leadership will review after Diwali' — no committed budget owner or timeline"],
     commitments: [],
+    resolutions: [],
+    verbatim_phrases: [
+      "leadership will review after Diwali",
+      "the website brings us nothing, referrals bring everything",
+      "no one really owns digital here",
+    ],
     next_step: null,
     last_sentiment: "mixed",
     facts: ["Delhi NCR-based B2B logistics & supply chain company", "No budget owner identified after two calls"],

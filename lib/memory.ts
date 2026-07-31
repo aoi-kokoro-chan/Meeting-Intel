@@ -7,6 +7,9 @@ export type Extracted = {
   stakeholders: Stakeholder[];
   objections: string[];
   commitments: Commitment[];
+  resolved_commitments?: string[];
+  addressed_objections?: string[];
+  verbatim_phrases?: string[];
   next_step: string | null;
   sentiment: string;
   deal_signal: "advancing" | "stalling" | "at_risk";
@@ -18,10 +21,19 @@ export type Memory = {
   stakeholders: Stakeholder[];
   objections: string[];
   commitments: Commitment[];
+  resolutions?: string[];
+  verbatim_phrases?: string[];
   next_step: string | null;
   last_sentiment?: string;
   facts?: string[];
 };
+
+export const SENIOR_ROLE =
+  /\b(head|director|vp|chief|cfo|ceo|cmo|coo|founder|owner|president|gm)\b|general manager|vice president/i;
+
+export function hasSeniorStakeholder(memory: Partial<Memory> | null): boolean {
+  return (memory?.stakeholders ?? []).some((s) => s.role && SENIOR_ROLE.test(s.role));
+}
 
 const STAGE_ORDER = ["discovery", "demo", "closing", "closed_won"];
 
@@ -41,6 +53,8 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     stakeholders: existing?.stakeholders ?? [],
     objections: existing?.objections ?? [],
     commitments: existing?.commitments ?? [],
+    resolutions: existing?.resolutions ?? [],
+    verbatim_phrases: existing?.verbatim_phrases ?? [],
     next_step: existing?.next_step ?? null,
     last_sentiment: existing?.last_sentiment,
     facts: existing?.facts ?? [],
@@ -72,6 +86,19 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
       mem.commitments.push(c);
     }
   }
+
+  // Resolved loops: delivered commitments + addressed objections stop rolling forward.
+  mem.resolutions = dedupeStrings([
+    ...(mem.resolutions ?? []),
+    ...(extracted.resolved_commitments ?? []),
+    ...(extracted.addressed_objections ?? []),
+  ]);
+
+  // The prospect's own words, capped so the list stays sharp.
+  mem.verbatim_phrases = dedupeStrings([
+    ...(mem.verbatim_phrases ?? []),
+    ...(extracted.verbatim_phrases ?? []),
+  ]).slice(0, 10);
 
   if (extracted.next_step?.trim()) mem.next_step = extracted.next_step.trim();
   if (extracted.sentiment) mem.last_sentiment = extracted.sentiment;

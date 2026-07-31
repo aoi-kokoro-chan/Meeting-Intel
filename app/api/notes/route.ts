@@ -14,6 +14,9 @@ Return JSON with exactly these keys:
   "stakeholders": [{"name": "...", "role": "...", "notes": "..."}, ...],
   "objections": ["<objection raised>", ...],
   "commitments": [{"who": "<rep or prospect person>", "what": "...", "when": "..."}, ...],
+  "resolved_commitments": ["<EXACT text of a prior commitment (from prior_commitments in context) these notes confirm was delivered>", ...],
+  "addressed_objections": ["<EXACT text of a prior objection (from prior_objections in context) these notes show was addressed/answered>", ...],
+  "verbatim_phrases": ["<short quote in the prospect's own words for their problems or processes>", ...],
   "next_step": "<the agreed next step, or null if none was agreed>",
   "sentiment": "<one word: positive/neutral/negative/mixed>",
   "deal_signal": "advancing" | "stalling" | "at_risk",
@@ -21,7 +24,9 @@ Return JSON with exactly these keys:
 }
 
 deal_signal: "advancing" if there's momentum (next meeting booked, buying signals), "stalling" if vague/postponed ("after Diwali", no owner), "at_risk" if serious blockers or competitor threat.
-stage_suggestion: only suggest a LATER stage than the current one if the notes clearly indicate it (e.g. demo scheduled -> "demo", contract/pricing sign-off discussion -> "closing"); otherwise null.`;
+stage_suggestion: only suggest a LATER stage than the current one if the notes clearly indicate it (e.g. demo scheduled -> "demo", contract/pricing sign-off discussion -> "closing"); otherwise null.
+resolved_commitments / addressed_objections: copy the prior item's text EXACTLY as given in context so it can be matched; empty arrays if nothing was resolved.
+verbatim_phrases: 3-6 short quotes max, only genuinely distinctive phrasing in the prospect's own words (e.g. "leadership will review after Diwali"); empty array if the notes contain none.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,10 +54,13 @@ export async function POST(req: NextRequest) {
 
     let extracted: Extracted | null = null;
     try {
+      const mem = prospect.memory ?? {};
       const context = {
         company: prospect.company_name,
         current_stage: prospect.stage,
-        known_memory: prospect.memory ?? {},
+        known_memory: mem,
+        prior_commitments: (mem.commitments ?? []).map((c: { who: string; what: string }) => `${c.who}: ${c.what}`),
+        prior_objections: mem.objections ?? [],
         meeting_type: meeting.meeting_type,
         raw_notes,
       };

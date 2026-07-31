@@ -1,31 +1,49 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { REPS, DEFAULT_REP, REP_COOKIE, REP_COLORS } from "@/lib/reps";
+import { useRouter } from "next/navigation";
 
-function getRepCookie(): string | null {
-  const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${REP_COOKIE}=([^;]+)`));
+import ViewSegment from "./view-segment";
+import { DEFAULT_REP, REP_COOKIE, PERSONA_COOKIE, repColor } from "@/lib/reps";
+
+function getCookie(name: string): string | null {
+  const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-function setRepCookie(rep: string) {
-  document.cookie = `${REP_COOKIE}=${encodeURIComponent(rep)}; path=/; max-age=31536000; SameSite=Lax`;
+function setCookie(name: string, value: string) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax`;
 }
 
-function RepSwitcher({ rep, onSwitch }: { rep: string; onSwitch: (r: string) => void }) {
+function RepAvatar({ name, size = "h-7 w-7 text-xs" }: { name: string; size?: string }) {
+  return (
+    <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${repColor(name)}`}>
+      {name[0]?.toUpperCase()}
+    </span>
+  );
+}
+
+function RepSwitcher({ rep, roster, onSwitch }: { rep: string; roster: string[]; onSwitch: (r: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const names = roster.includes(rep) ? roster : [rep, ...roster];
+
+  function close() {
+    setOpen(false);
+    setAdding(false);
+    setNewName("");
+  }
+
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => (open ? close() : setOpen(true))}
         className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm hover:border-slate-400"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${REP_COLORS[rep] ?? "bg-slate-500"}`}>
-          {rep[0]}
-        </span>
+        <RepAvatar name={rep} />
         <span className="text-left">
           <span className="block text-sm font-semibold leading-tight">{rep}</span>
           <span className="block text-[11px] leading-tight text-slate-400">Your deals</span>
@@ -34,28 +52,170 @@ function RepSwitcher({ rep, onSwitch }: { rep: string; onSwitch: (r: string) => 
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-            {REPS.map((r) => (
+          <div className="fixed inset-0 z-10" onClick={close} />
+          <div className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+            {names.map((r) => (
               <button
                 key={r}
                 onClick={() => {
-                  setOpen(false);
+                  close();
                   if (r !== rep) onSwitch(r);
                 }}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 ${r === rep ? "font-semibold" : ""}`}
               >
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${REP_COLORS[r] ?? "bg-slate-500"}`}>
-                  {r[0]}
-                </span>
+                <RepAvatar name={r} size="h-6 w-6 text-[11px]" />
                 <span className="flex-1">{r}</span>
                 {r === rep && <span className="text-slate-400">✓</span>}
               </button>
             ))}
+            <div className="my-1 border-t border-slate-100" />
+            {adding ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = newName.trim();
+                  if (!name) return;
+                  close();
+                  if (name !== rep) onSwitch(name);
+                }}
+                className="flex gap-1 p-1"
+              >
+                <input
+                  autoFocus
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full min-w-0 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-slate-900 focus:outline-none"
+                />
+                <button type="submit" className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-semibold text-white">
+                  Go
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setAdding(true)}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-slate-500 hover:bg-slate-50"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-400 text-[11px] font-bold text-slate-400">
+                  +
+                </span>
+                Add new rep
+              </button>
+            )}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+function PersonaGate({
+  roster,
+  repExpanded,
+  onPickRep,
+}: {
+  roster: string[] | null;
+  repExpanded: boolean;
+  onPickRep: (name: string) => void;
+}) {
+  const router = useRouter();
+  const [showReps, setShowReps] = useState(repExpanded);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  function pickManager() {
+    setCookie(PERSONA_COOKIE, "manager");
+    router.push("/manager");
+  }
+
+  function pickRep(name: string) {
+    const n = name.trim();
+    if (!n) return;
+    setCookie(PERSONA_COOKIE, "rep");
+    setCookie(REP_COOKIE, n);
+    onPickRep(n);
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="w-full max-w-lg">
+        <h1 className="text-center text-3xl font-bold tracking-tight">Meeting Intelligence</h1>
+        <p className="mt-2 text-center text-slate-500">
+          Briefs before the call. Memory after. One brain across the team.
+        </p>
+        <div className="mt-8 space-y-3">
+          <button
+            onClick={() => setShowReps(true)}
+            className={`w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm transition ${
+              showReps ? "border-slate-900" : "border-slate-200 hover:border-slate-400"
+            }`}
+          >
+            <p className="text-lg font-bold">I&apos;m a Sales Rep</p>
+            <p className="mt-1 text-sm text-slate-500">Get a brief before your call, drop notes after.</p>
+          </button>
+          {showReps && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold">Who are you?</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {roster === null ? (
+                  <span className="text-sm text-slate-400">Loading team…</span>
+                ) : (
+                  roster.map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => pickRep(r)}
+                      className="flex items-center gap-2 rounded-full border border-slate-300 bg-white py-1.5 pl-1.5 pr-3.5 text-sm font-medium hover:border-slate-900"
+                    >
+                      <RepAvatar name={r} size="h-6 w-6 text-[11px]" />
+                      {r}
+                    </button>
+                  ))
+                )}
+                {!adding && (
+                  <button
+                    onClick={() => setAdding(true)}
+                    className="rounded-full border border-dashed border-slate-400 px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:border-slate-900 hover:text-slate-900"
+                  >
+                    + I&apos;m new
+                  </button>
+                )}
+              </div>
+              {adding && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    pickRep(newName);
+                  }}
+                  className="mt-3 flex gap-2"
+                >
+                  <input
+                    autoFocus
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newName.trim()}
+                    className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Continue
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+          <button
+            onClick={pickManager}
+            className="w-full rounded-2xl border-2 border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-slate-400"
+          >
+            <p className="text-lg font-bold">I&apos;m a Sales Manager</p>
+            <p className="mt-1 text-sm text-slate-500">See every deal across all reps.</p>
+          </button>
+        </div>
+      </div>
+    </main>
   );
 }
 
@@ -90,11 +250,15 @@ type Brief = {
   company_snapshot?: string;
   what_we_know?: string[];
   last_meeting_recap?: string;
+  open_loops?: string[];
   open_threads?: string[];
   likely_objections?: string[];
   talk_track?: string[];
   questions_to_ask?: string[];
   watch_out?: string;
+  intel_from?: string[];
+  readiness_gaps?: string[];
+  verbatim_phrases?: string[];
   ai_unavailable?: boolean;
 };
 
@@ -152,6 +316,7 @@ function BriefSection({ title, items, text }: { title: string; items?: string[];
 
 const PANEL_SECTIONS = [
   { id: "snapshot", label: "Snapshot" },
+  { id: "loops", label: "Open loops" },
   { id: "know", label: "What we know" },
   { id: "last", label: "Last time" },
   { id: "objections", label: "Objections" },
@@ -216,7 +381,8 @@ function BriefPanel({
 
   const hasContent: Record<string, boolean> = {
     snapshot: Boolean(brief.headline?.trim() || brief.company_snapshot?.trim()),
-    know: (brief.what_we_know?.length ?? 0) > 0,
+    loops: (brief.open_loops?.length ?? 0) > 0,
+    know: (brief.what_we_know?.length ?? 0) > 0 || (brief.verbatim_phrases?.length ?? 0) > 0,
     last: Boolean(brief.last_meeting_recap?.trim()),
     objections: (brief.likely_objections?.length ?? 0) > 0,
     talk: (brief.talk_track?.length ?? 0) > 0,
@@ -276,6 +442,29 @@ function BriefPanel({
                 AI briefly rate-limited when this brief was generated — it shows what we knew at the time.
               </div>
             )}
+            {(brief.readiness_gaps?.length ?? 0) > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+                <h3 className="mb-1.5 text-sm font-bold text-amber-800">Ready to close?</h3>
+                <ul className="space-y-1">
+                  {brief.readiness_gaps!.map((g, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-amber-900">
+                      <span className="shrink-0">•</span>
+                      <span>{g}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(brief.intel_from?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {brief.intel_from!.map((r) => (
+                  <span key={r} className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800">
+                    <RepAvatar name={r} size="h-4 w-4 text-[9px]" />
+                    Includes intel from {r}&apos;s earlier calls
+                  </span>
+                ))}
+              </div>
+            )}
             {hasContent.snapshot &&
               wrap(
                 "snapshot",
@@ -288,7 +477,47 @@ function BriefPanel({
                   <BriefSection title="Company snapshot" text={brief.company_snapshot} />
                 </div>
               )}
-            {hasContent.know && wrap("know", <BriefSection title="What we know" items={brief.what_we_know} />)}
+            {hasContent.loops &&
+              wrap(
+                "loops",
+                <div className="rounded-xl border border-orange-200 bg-orange-50 p-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-orange-700">Open loops</h3>
+                  <ul className="space-y-1.5">
+                    {brief.open_loops!.map((l, i) => (
+                      <li key={i} className="flex gap-2 text-sm leading-relaxed text-orange-900">
+                        <span className="mt-0.5 shrink-0">↻</span>
+                        <span>{l}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            {hasContent.know &&
+              wrap(
+                "know",
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">What we know</h3>
+                  {(brief.what_we_know?.length ?? 0) > 0 && (
+                    <ul className="space-y-1.5">
+                      {brief.what_we_know!.map((it, i) => (
+                        <li key={i} className="flex gap-2 text-sm leading-relaxed text-slate-800">
+                          <span className="mt-0.5 shrink-0 text-slate-400">•</span>
+                          <span>{it}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {(brief.verbatim_phrases?.length ?? 0) > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {brief.verbatim_phrases!.map((v, i) => (
+                        <span key={i} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs italic text-slate-600">
+                          &ldquo;{v}&rdquo;
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             {hasContent.last && wrap("last", <BriefSection title="Last meeting recap" text={brief.last_meeting_recap} />)}
             {(brief.open_threads?.length ?? 0) > 0 && wrap("threads", <BriefSection title="Open threads" items={brief.open_threads} />)}
             {hasContent.objections && wrap("objections", <BriefSection title="Likely objections" items={brief.likely_objections} />)}
@@ -310,6 +539,10 @@ function BriefPanel({
 }
 
 export default function RepView() {
+  const router = useRouter();
+  const [boot, setBoot] = useState<"loading" | "gate" | "app">("loading");
+  const [gateRepExpanded, setGateRepExpanded] = useState(false);
+  const [roster, setRoster] = useState<string[] | null>(null);
   const [rep, setRep] = useState(DEFAULT_REP);
   const [ownerNotice, setOwnerNotice] = useState<string | null>(null);
   const [company, setCompany] = useState("");
@@ -332,6 +565,14 @@ export default function RepView() {
   const [inferredSite, setInferredSite] = useState<string | null>(null);
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [panel, setPanel] = useState<{ meeting: Meeting; company: string; section?: string } | null>(null);
+
+  const [lookup, setLookup] = useState<{
+    company_name: string;
+    owner_rep: string | null;
+    stage: string;
+    next_step: string | null;
+    last_meeting: { type: string; rep: string | null; days_ago: number | null } | null;
+  } | null>(null);
 
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -357,17 +598,61 @@ export default function RepView() {
   }, []);
 
   useEffect(() => {
-    const c = getRepCookie();
-    if (c && REPS.includes(c)) {
-      setRep(c);
-    } else {
-      setRepCookie(DEFAULT_REP);
+    // First-visit gate: no persona cookie → welcome screen; manager → redirect.
+    const persona = getCookie(PERSONA_COOKIE);
+    const repCookie = getCookie(REP_COOKIE);
+    if (persona === "manager") {
+      router.replace("/manager");
+      return;
     }
+    if (persona === "rep" && repCookie) {
+      setRep(repCookie);
+      setBoot("app");
+      loadProspects();
+    } else {
+      setGateRepExpanded(persona === "rep");
+      setBoot("gate");
+    }
+    // Roster loads after first paint — never blocks the gate rendering.
+    fetch("/api/reps")
+      .then((r) => r.json())
+      .then((d) => setRoster(d.reps ?? []))
+      .catch(() => setRoster([]));
+  }, [loadProspects, router]);
+
+  function enterAsRep(name: string) {
+    setRep(name);
+    setBoot("app");
     loadProspects();
-  }, [loadProspects]);
+  }
+
+  // Debounced existing-prospect check while typing (exact name/domain match only).
+  useEffect(() => {
+    if (boot !== "app") return;
+    const name = company.trim();
+    const site = website.trim();
+    if (name.length < 3 && !site) {
+      setLookup(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        if (name.length >= 3) params.set("name", name);
+        if (site) params.set("website", site);
+        const res = await fetch(`/api/prospects/lookup?${params}`);
+        const data = await res.json();
+        setLookup(res.ok ? data.match : null);
+      } catch {
+        setLookup(null);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [company, website, boot]);
 
   function switchRep(next: string) {
-    setRepCookie(next);
+    setCookie(REP_COOKIE, next);
+    setCookie(PERSONA_COOKIE, "rep");
     setRep(next);
     // Clear rep-specific transient state and reload scoped data.
     setBrief(null);
@@ -382,6 +667,7 @@ export default function RepView() {
     setWarnings([]);
     setError(null);
     setPanel(null);
+    setLookup(null);
     setExpanded(null);
     setListLoaded(false);
     setProspects([]);
@@ -536,6 +822,11 @@ export default function RepView() {
   const inputCls =
     "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none";
 
+  if (boot === "loading") return null;
+  if (boot === "gate") {
+    return <PersonaGate roster={roster} repExpanded={gateRepExpanded} onPickRep={enterAsRep} />;
+  }
+
   return (
     <main className="mx-auto max-w-xl px-4 pb-24 pt-6">
       <header className="mb-6 flex items-start justify-between gap-4">
@@ -544,10 +835,8 @@ export default function RepView() {
           <p className="mt-1 text-sm text-slate-500">Briefs before the call. Memory after.</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
-          <Link href="/manager" className="text-sm font-medium text-blue-600 hover:underline">
-            Manager view →
-          </Link>
-          <RepSwitcher rep={rep} onSwitch={switchRep} />
+          <ViewSegment active="rep" />
+          <RepSwitcher rep={rep} roster={roster ?? []} onSwitch={switchRep} />
         </div>
       </header>
 
@@ -573,6 +862,24 @@ export default function RepView() {
               aria-invalid={Boolean(companyError)}
             />
             {companyError && <p className="mt-1 text-xs text-red-600">{companyError}</p>}
+            {lookup && (
+              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                <p>
+                  <span className="font-semibold">{lookup.company_name} is already in the system</span>
+                  {lookup.last_meeting && (
+                    <>
+                      {" — "}
+                      {lookup.owner_rep ?? "someone"} ran a {lookup.last_meeting.type} call
+                      {lookup.last_meeting.days_ago != null &&
+                        ` ${lookup.last_meeting.days_ago === 0 ? "today" : `${lookup.last_meeting.days_ago} day${lookup.last_meeting.days_ago === 1 ? "" : "s"} ago`}`}
+                    </>
+                  )}
+                  . Deal stage: <span className="capitalize">{lookup.stage.replace("_", " ")}</span>. Your brief will
+                  include everything we learned.
+                </p>
+                {lookup.next_step && <p className="mt-1 text-xs text-blue-700">Next step on file: {lookup.next_step}</p>}
+              </div>
+            )}
           </div>
           <input
             className={inputCls}
@@ -730,6 +1037,19 @@ export default function RepView() {
                 notes and the system remembers everything for meeting #2.
               </p>
             </div>
+            <button
+              onClick={() => {
+                setCompany("Elgi Equipments");
+                setWebsite("elgi.com");
+                setContactName("Arjun Nair");
+                setContactRole("GM Marketing");
+                setMeetingType("discovery");
+                companyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              className="mt-3 w-full rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-900"
+            >
+              Try an example
+            </button>
           </div>
         ) : (
           <ul className="space-y-2">

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Memory } from "@/lib/memory";
-import { REPS, REP_COLORS } from "@/lib/reps";
+import { deriveRoster, repColor } from "@/lib/reps";
+import ViewSegment from "../view-segment";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,7 @@ function RepBadge({ name, size = "h-6 w-6 text-[11px]" }: { name: string | null;
   if (!name) return <span className="text-sm text-slate-400">—</span>;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${REP_COLORS[name] ?? "bg-slate-500"}`}>
+      <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${repColor(name)}`}>
         {name[0]}
       </span>
       <span className="text-sm text-slate-700">{name}</span>
@@ -81,7 +82,6 @@ export default async function ManagerView({
   searchParams: Promise<{ rep?: string }>;
 }) {
   const { rep: repParam } = await searchParams;
-  const repFilter = repParam && REPS.includes(repParam) ? repParam : null;
   let prospects: ProspectRow[] = [];
   let loadError: string | null = null;
   try {
@@ -98,6 +98,9 @@ export default async function ManagerView({
   } catch (err) {
     loadError = (err as Error).message;
   }
+
+  const roster = deriveRoster(prospects, prospects.flatMap((p) => p.meetings));
+  const repFilter = repParam && roster.includes(repParam) ? repParam : null;
 
   // Table + stat cards respect the rep filter; signal cards stay global.
   const visible = repFilter ? prospects.filter((p) => p.owner_rep === repFilter) : prospects;
@@ -152,6 +155,15 @@ export default async function ManagerView({
       watchouts.push(
         `${repOf(p)} — ${p.company_name} is ${p.deal_health.replace("_", " ")}, ${daysSince(p.updated_at)} days since last activity.`
       );
+    }
+  }
+  for (const p of allActive) {
+    const stakeholders = p.memory?.stakeholders ?? [];
+    if (doneCount(p) >= 2 && stakeholders.length < 2) {
+      const only = stakeholders[0]
+        ? `${stakeholders[0].name}${stakeholders[0].role ? ` (${stakeholders[0].role})` : ""}`
+        : "one contact";
+      watchouts.push(`${repOf(p)} — single-threaded at ${p.company_name}: only ${only} in the deal.`);
     }
   }
   for (const p of allActive) {
@@ -226,9 +238,9 @@ export default async function ManagerView({
           <h1 className="text-3xl font-bold tracking-tight">Pipeline Intelligence</h1>
           <p className="mt-1 text-slate-500">Every deal, every call, one brain.</p>
         </div>
-        <Link href="/" className="mt-2 shrink-0 text-sm font-medium text-blue-600 hover:underline">
-          Rep view →
-        </Link>
+        <div className="mt-2 shrink-0">
+          <ViewSegment active="manager" />
+        </div>
       </header>
 
       {loadError && (
@@ -260,15 +272,15 @@ export default async function ManagerView({
             >
               All
             </Link>
-            {REPS.map((r) => (
+            {roster.map((r) => (
               <Link
                 key={r}
-                href={`/manager?rep=${r}`}
+                href={`/manager?rep=${encodeURIComponent(r)}`}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
                   repFilter === r ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"
                 }`}
               >
-                <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${REP_COLORS[r] ?? "bg-slate-500"}`}>
+                <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${repColor(r)}`}>
                   {r[0]}
                 </span>
                 {r}
@@ -389,7 +401,7 @@ export default async function ManagerView({
                   {learningGroups.map((g) => (
                     <div key={g.rep}>
                       <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-blue-800">
-                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${REP_COLORS[g.rep] ?? "bg-slate-500"}`}>
+                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${repColor(g.rep)}`}>
                           {g.rep[0]}
                         </span>
                         {g.rep}
