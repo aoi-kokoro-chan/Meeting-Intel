@@ -4,6 +4,7 @@ create table prospects (
   website text,
   contact_name text,
   contact_role text,
+  owner_rep text default 'Sales Rep A',
   stage text default 'discovery',
   deal_health text default 'unknown',
   memory jsonb default '{}',

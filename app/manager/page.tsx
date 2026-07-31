@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Memory } from "@/lib/memory";
-import { deriveRoster, repColor } from "@/lib/reps";
+import { deriveRoster, repColor, repInitial } from "@/lib/reps";
 import ViewSegment from "../view-segment";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +69,7 @@ function RepBadge({ name, size = "h-6 w-6 text-[11px]" }: { name: string | null;
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${repColor(name)}`}>
-        {name[0]}
+        {repInitial(name)}
       </span>
       <span className="text-sm text-slate-700">{name}</span>
     </span>
@@ -281,7 +281,7 @@ export default async function ManagerView({
                 }`}
               >
                 <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${repColor(r)}`}>
-                  {r[0]}
+                  {repInitial(r)}
                 </span>
                 {r}
               </Link>
@@ -402,7 +402,7 @@ export default async function ManagerView({
                     <div key={g.rep}>
                       <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-blue-800">
                         <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${repColor(g.rep)}`}>
-                          {g.rep[0]}
+                          {repInitial(g.rep)}
                         </span>
                         {g.rep}
                       </p>

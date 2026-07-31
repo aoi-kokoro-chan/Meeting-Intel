@@ -20,7 +20,7 @@ const BRIEF_SYSTEM = `You write pre-call briefs for sales reps at Gushwork, an A
 
 Be specific and concrete. For meeting history, stakeholders, and quotes, use ONLY facts from the provided context — never invent them. For general company background, also use your own knowledge of this company if it is well-known (industry, size, what they do), even if the website scrape returned nothing — a famous brand must never be described as unknown; only say information is unavailable if the company is genuinely obscure AND the scrape failed. If this is meeting 2 or later, you MUST reference concrete facts from earlier meetings (names, objections, commitments, exact pains).
 
-ATTRIBUTE prior knowledge: every item in what_we_know and every claim in last_meeting_recap must say which rep learned it and when, using each past meeting's rep and date from the context, e.g. "From Rohan's discovery call (Jul 12): no budget owner identified yet".
+ATTRIBUTE prior knowledge: every item in what_we_know and every claim in last_meeting_recap must say which rep learned it and when, using each past meeting's rep and date from the context, e.g. "From Sales Rep B's discovery call (Jul 12): no budget owner identified yet".
 
 OPEN LOOPS: the context lists all prior commitments and objections with their meeting dates, plus a "resolutions" list of items already delivered/addressed. Every commitment NOT in resolutions and every objection NOT in resolutions must appear in open_loops with its age, e.g. "ROI sheet promised 6 days ago — unresolved". Empty array if nothing is open.
 

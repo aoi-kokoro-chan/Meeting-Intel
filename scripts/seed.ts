@@ -80,7 +80,7 @@ async function main() {
     .insert({
       company_name: "Elgi Equipments",
       website: "elgi.com",
-      owner_rep: "Priya",
+      owner_rep: "Sales Rep A",
       contact_name: "Arjun Nair",
       contact_role: "GM Marketing",
       stage: "demo",
@@ -96,7 +96,7 @@ async function main() {
   const { error: e1m } = await db.from("meetings").insert([
     {
       prospect_id: elgi.id,
-      rep_name: "Priya",
+      rep_name: "Sales Rep A",
       meeting_type: "discovery",
       scheduled_at: daysAgo(18),
       status: "done",
@@ -149,7 +149,7 @@ async function main() {
     },
     {
       prospect_id: elgi.id,
-      rep_name: "Priya",
+      rep_name: "Sales Rep A",
       meeting_type: "demo",
       scheduled_at: daysAgo(9),
       status: "done",
@@ -204,7 +204,7 @@ async function main() {
     },
     {
       prospect_id: elgi.id,
-      rep_name: "Priya",
+      rep_name: "Sales Rep A",
       meeting_type: "closing",
       scheduled_at: daysAhead(2),
       status: "upcoming",
@@ -248,7 +248,7 @@ async function main() {
     .insert({
       company_name: "Safexpress",
       website: "safexpress.com",
-      owner_rep: "Rohan",
+      owner_rep: "Sales Rep B",
       contact_name: "Rohan Taneja",
       contact_role: "Digital Marketing Executive",
       stage: "discovery",
@@ -264,7 +264,7 @@ async function main() {
   const { error: e2m } = await db.from("meetings").insert([
     {
       prospect_id: safex.id,
-      rep_name: "Rohan",
+      rep_name: "Sales Rep B",
       meeting_type: "discovery",
       scheduled_at: daysAgo(25),
       status: "done",
@@ -310,7 +310,7 @@ async function main() {
     },
     {
       prospect_id: safex.id,
-      rep_name: "Rohan",
+      rep_name: "Sales Rep B",
       meeting_type: "discovery",
       scheduled_at: daysAgo(11),
       status: "done",
@@ -378,7 +378,7 @@ async function main() {
     .insert({
       company_name: "Scalenut",
       website: "scalenut.com",
-      owner_rep: "Aditi",
+      owner_rep: "Sales Rep A",
       contact_name: "Vikram Sethi",
       contact_role: "Growth Lead",
       stage: "disqualified",
@@ -394,7 +394,7 @@ async function main() {
   const { error: e3m } = await db.from("meetings").insert([
     {
       prospect_id: scalenut.id,
-      rep_name: "Aditi",
+      rep_name: "Sales Rep A",
       meeting_type: "discovery",
       scheduled_at: daysAgo(14),
       status: "done",
@@ -438,7 +438,7 @@ async function main() {
     },
     {
       prospect_id: scalenut.id,
-      rep_name: "Aditi",
+      rep_name: "Sales Rep A",
       meeting_type: "demo",
       scheduled_at: daysAhead(1),
       status: "upcoming",

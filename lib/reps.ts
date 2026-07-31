@@ -1,7 +1,7 @@
 // Rep identity is a cookie-based switcher, never a login wall. A real
 // deployment would source identity from SSO. The roster is derived
 // dynamically from the data (distinct owner_rep + meeting rep_name).
-export const DEFAULT_REP = "Priya";
+export const DEFAULT_REP = "Sales Rep A";
 export const REP_COOKIE = "rep";
 export const PERSONA_COOKIE = "persona";
 
@@ -15,6 +15,14 @@ const PALETTE = [
   "bg-teal-600",
   "bg-fuchsia-600",
 ];
+
+// Avatar initial: "Sales Rep A" -> "A", "Sasha" -> "S" (single-char last word wins).
+export function repInitial(name: string | null | undefined): string {
+  if (!name?.trim()) return "?";
+  const parts = name.trim().split(/\s+/);
+  const last = parts[parts.length - 1];
+  return (last.length === 1 ? last : name.trim()[0]).toUpperCase();
+}
 
 export function repColor(name: string | null | undefined): string {
   if (!name) return "bg-slate-500";

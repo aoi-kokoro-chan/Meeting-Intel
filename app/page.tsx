@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import ViewSegment from "./view-segment";
-import { DEFAULT_REP, REP_COOKIE, PERSONA_COOKIE, repColor } from "@/lib/reps";
+import { DEFAULT_REP, REP_COOKIE, PERSONA_COOKIE, repColor, repInitial } from "@/lib/reps";
 
 function getCookie(name: string): string | null {
   const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
@@ -18,7 +18,7 @@ function setCookie(name: string, value: string) {
 function RepAvatar({ name, size = "h-7 w-7 text-xs" }: { name: string; size?: string }) {
   return (
     <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${repColor(name)}`}>
-      {name[0]?.toUpperCase()}
+      {repInitial(name)}
     </span>
   );
 }
