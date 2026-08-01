@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { repColor, repInitial } from "@/lib/reps";
 import type { Memory } from "@/lib/memory";
@@ -260,19 +260,34 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   const [stages, setStages] = useState<string[]>([]);
   const [activity, setActivity] = useState<"all" | "active" | "quiet">("all");
   const [showArchived, setShowArchived] = useState(false);
-  const [showAllRows, setShowAllRows] = useState(false);
   const [sort, setSort] = useState<{ key: "activity" | "health"; dir: "asc" | "desc" }>({ key: "activity", dir: "desc" });
 
-  // Row expansion persists for the tab session; collapsed on every fresh load.
-  const ROW_LIMIT = 5;
+  // Bounded scroll: past this row count the table gets a ~5-row max-height
+  // with internal scroll (desktop only). "Expand to full page" lifts the cap;
+  // preference persists for the tab session.
+  const SCROLL_THRESHOLD = 10;
+  const [fullPage, setFullPage] = useState(false);
+  const [moreBelow, setMoreBelow] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (sessionStorage.getItem("managerTableShowAllRows") === "1") setShowAllRows(true);
+    if (sessionStorage.getItem("managerTableFullPage") === "1") setFullPage(true);
   }, []);
-  function toggleRows() {
-    const next = !showAllRows;
-    setShowAllRows(next);
-    sessionStorage.setItem("managerTableShowAllRows", next ? "1" : "0");
+  function toggleFullPage() {
+    const next = !fullPage;
+    setFullPage(next);
+    sessionStorage.setItem("managerTableFullPage", next ? "1" : "0");
   }
+
+  const recountBelow = useCallback(() => {
+    const c = scrollRef.current;
+    if (!c) return;
+    const limit = c.scrollTop + c.clientHeight;
+    let n = 0;
+    c.querySelectorAll<HTMLElement>(":scope > details").forEach((el) => {
+      if (el.offsetTop >= limit - 12) n++;
+    });
+    setMoreBelow(n);
+  }, []);
 
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -355,7 +370,23 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
     );
   }
 
-  const visibleRows = showAllRows ? sorted : sorted.slice(0, ROW_LIMIT);
+  const capActive = !fullPage && sorted.length > SCROLL_THRESHOLD;
+
+  // Recount whenever the cap engages, the row set changes, or the viewport
+  // crosses the breakpoint (after layout).
+  useEffect(() => {
+    if (!capActive) {
+      setMoreBelow(0);
+      return;
+    }
+    const raf = requestAnimationFrame(recountBelow);
+    window.addEventListener("resize", recountBelow);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", recountBelow);
+    };
+  }, [capActive, sorted, recountBelow]);
+
   const gridCols = "md:grid-cols-[1.6fr_0.8fr_0.8fr_0.5fr_0.8fr_1.2fr_1.4fr_0.7fr]";
   const clamp1 =
     "overflow-hidden [-webkit-box-orient:vertical] [-webkit-line-clamp:1] [display:-webkit-box] hover:[-webkit-line-clamp:unset]";
@@ -376,6 +407,11 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Deals <span className="font-normal normal-case text-slate-400">({sorted.length} of {scopeTotal})</span>
           </h2>
+          {(sorted.length > SCROLL_THRESHOLD || fullPage) && (
+            <button onClick={toggleFullPage} className="hidden text-xs font-medium text-blue-600 hover:underline md:block">
+              {fullPage ? "⊟ Collapse table" : "⤢ Expand to full page"}
+            </button>
+          )}
         </div>
 
         {/* Filter bar */}
@@ -446,9 +482,17 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="relative">
+          <div
+            ref={scrollRef}
+            onScroll={capActive ? recountBelow : undefined}
+            onClick={capActive ? () => requestAnimationFrame(recountBelow) : undefined}
+            className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${
+              capActive ? "md:max-h-[400px] md:overflow-y-auto" : ""
+            }`}
+          >
             <div
-              className={`hidden gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid ${gridCols}`}
+              className={`hidden gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:sticky md:top-0 md:z-10 md:grid ${gridCols}`}
             >
               <span>Company</span>
               <button onClick={() => clickSort("health")} className="text-left uppercase tracking-wide hover:text-slate-800">
@@ -463,7 +507,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
               <span>Latest signal</span>
               <span>Actions</span>
             </div>
-            {visibleRows.map((p) => (
+            {sorted.map((p) => (
               <details key={p.id} className={`group border-b border-slate-100 last:border-b-0 ${p.archived_at ? "opacity-60" : ""}`}>
                 <summary
                   className={`grid cursor-pointer grid-cols-2 gap-3 px-5 py-4 hover:bg-slate-50 md:items-center [&::-webkit-details-marker]:hidden ${gridCols}`}
@@ -558,18 +602,18 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
               </details>
             ))}
           </div>
+          {capActive && moreBelow > 0 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden md:block">
+              <div className="h-14 rounded-b-2xl bg-gradient-to-t from-white via-white/70 to-transparent" />
+              <div className="absolute inset-x-0 bottom-2 text-center">
+                <span className="rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-medium text-white shadow">
+                  {moreBelow} more below ▾
+                </span>
+              </div>
+            </div>
+          )}
+          </div>
         )}
-        <div className="mt-3 text-center">
-          <button
-            onClick={toggleRows}
-            disabled={sorted.length <= ROW_LIMIT}
-            className={`text-xs font-medium ${
-              sorted.length > ROW_LIMIT ? "text-blue-600 hover:underline" : "cursor-not-allowed text-slate-300"
-            }`}
-          >
-            {showAllRows && sorted.length > ROW_LIMIT ? "Show fewer ▴" : `Show all ${sorted.length} deals ▾`}
-          </button>
-        </div>
       </section>
     </>
   );
