@@ -1,5 +1,6 @@
 export type Stakeholder = { name: string; role?: string; notes?: string };
 export type Commitment = { who: string; what: string; when?: string };
+export type Competitor = { name: string; context?: string; mentioned_at?: string };
 
 export type Extracted = {
   summary: string;
@@ -10,6 +11,9 @@ export type Extracted = {
   resolved_commitments?: string[];
   addressed_objections?: string[];
   verbatim_phrases?: string[];
+  competitors?: Competitor[];
+  process_facts?: string[];
+  relationship_notes?: string[];
   fit?: Record<string, string>;
   fit_reason?: string | null;
   resolved_fit_unknowns?: string[];
@@ -26,6 +30,9 @@ export type Memory = {
   commitments: Commitment[];
   resolutions?: string[];
   verbatim_phrases?: string[];
+  competitors?: Competitor[];
+  process_facts?: string[];
+  relationship_notes?: string[];
   fit?: Record<string, string>;
   fit_reason?: string | null;
   fit_unknowns?: string[];
@@ -108,6 +115,25 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     ...(mem.verbatim_phrases ?? []),
     ...(extracted.verbatim_phrases ?? []),
   ]).slice(0, 10);
+
+  // Competitors dedupe by name; first sighting date sticks, newer context wins.
+  const compByName = new Map<string, Competitor>();
+  for (const c of [...(existing?.competitors ?? []), ...(extracted.competitors ?? [])]) {
+    if (!c?.name?.trim()) continue;
+    const k = c.name.trim().toLowerCase();
+    const prev = compByName.get(k);
+    compByName.set(k, {
+      name: c.name.trim(),
+      context: c.context || prev?.context,
+      mentioned_at: prev?.mentioned_at || c.mentioned_at,
+    });
+  }
+  mem.competitors = [...compByName.values()];
+  mem.process_facts = dedupeStrings([...(existing?.process_facts ?? []), ...(extracted.process_facts ?? [])]);
+  mem.relationship_notes = dedupeStrings([
+    ...(existing?.relationship_notes ?? []),
+    ...(extracted.relationship_notes ?? []),
+  ]);
 
   // Fit resolutions: answered questions overwrite, resolved unknowns drop off.
   mem.fit = existing?.fit ?? {};

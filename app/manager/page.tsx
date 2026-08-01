@@ -333,6 +333,19 @@ export default async function ManagerView({
                   <span className="font-semibold text-slate-900">
                     {p.company_name}
                     {p.website && <span className="ml-2 hidden text-xs font-normal text-slate-400 lg:inline">{p.website}</span>}
+                    {(p.memory?.competitors?.length ?? 0) > 0 && (
+                      <span className="mt-0.5 flex flex-wrap gap-1">
+                        {p.memory!.competitors!.map((c) => (
+                          <span
+                            key={c.name}
+                            className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700"
+                            title={c.context ?? undefined}
+                          >
+                            ⚔ {c.name}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
                   <span>
                     <RepBadge name={p.owner_rep} />

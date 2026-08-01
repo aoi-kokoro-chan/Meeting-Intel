@@ -32,6 +32,8 @@ MIRROR THEIR LANGUAGE: verbatim_phrases in the context are the prospect's own wo
 
 GROUNDED RECAP: last_meeting_recap must ONLY restate facts present in the most recent past meeting's notes/extracted/summary from the context — no inference, no additions, nothing from other meetings.
 
+WHO ELSE IS IN THE DEAL: if memory lists competitors, they must be visible — mention them in what_we_know and factor them into likely_objections and watch_out. process_facts (procurement/legal/security timelines) and relationship_notes (channel/contact preferences) must shape talk_track, questions_to_ask, and open_threads — e.g. a 6-week legal review changes the close plan, a "WhatsApp only" preference changes the follow-up.
+
 RESOLVE FIT FIRST: fit_unknowns in the context are unresolved questions about whether this prospect is even a fit. On a DISCOVERY call they OUTRANK generic discovery questions: turn each one into a natural, conversational question and put them FIRST in questions_to_ask, each prefixed with "Resolve fit first: " — e.g. "Unknown: where does their demand come from today?" becomes "Resolve fit first: How do new customers typically find you today?"; capacity appetite becomes "Resolve fit first: If 10 qualified enquiries landed next month, could you take them on?"; economics becomes "Resolve fit first: Roughly what does a new customer end up being worth to you?". Generic questions come after. If fit_unknowns is empty, no prefixed questions.
 
 Return JSON with exactly these keys:
@@ -248,6 +250,24 @@ export async function POST(req: NextRequest) {
       // brand; what_we_know carries only earned intelligence, so it goes empty.
       brief.what_we_know = [];
       brief.cold_start = true;
+    }
+
+    // Competitive presence and deal mechanics are never optional in the brief:
+    // append anything stored that the model didn't already surface.
+    const briefBlob = () => JSON.stringify(brief).toLowerCase();
+    for (const comp of memory.competitors ?? []) {
+      if (!comp?.name) continue;
+      if (!brief.what_we_know.some((i) => i.toLowerCase().includes(comp.name.toLowerCase()))) {
+        brief.what_we_know.push(`Also in the deal: ${comp.name}${comp.context ? ` — ${comp.context}` : ""}`);
+      }
+    }
+    for (const note of memory.relationship_notes ?? []) {
+      const key = note.toLowerCase().slice(0, 30);
+      if (!briefBlob().includes(key)) brief.what_we_know.push(`Contact preference: ${note}`);
+    }
+    for (const fact of memory.process_facts ?? []) {
+      const key = fact.toLowerCase().slice(0, 30);
+      if (!briefBlob().includes(key)) brief.what_we_know.push(`Process: ${fact}`);
     }
 
     // Cross-rep intel chip: which other reps' calls fed this brief.

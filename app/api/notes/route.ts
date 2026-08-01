@@ -22,6 +22,9 @@ Return JSON with exactly these keys:
   "resolved_commitments": ["<EXACT text of a prior commitment (from prior_commitments in context) these notes confirm was delivered>", ...],
   "addressed_objections": ["<EXACT text of a prior objection (from prior_objections in context) these notes show was addressed/answered>", ...],
   "verbatim_phrases": ["<short quote in the prospect's own words for their problems or processes>", ...],
+  "competitors": [{"name": "<competitor or alternative vendor mentioned>", "context": "<how they came up>"}, ...],
+  "process_facts": ["<procurement/legal/security-review/timeline fact, e.g. 'legal review takes 6 weeks'>", ...],
+  "relationship_notes": ["<channel or contact preference, e.g. 'prefers WhatsApp, no email on Fridays'>", ...],
   "fit": {"demand_source": "...", "capacity_appetite": "...", "economics": "...", "growth_intent": "..."},
   "fit_reason": "<one line explaining POOR fit if the notes reveal it, e.g. 'demand comes from 2 anchor clients, no growth appetite'; null if fit looks fine or is still unknown>",
   "resolved_fit_unknowns": ["<EXACT text of a fit unknown (from fit_unknowns in context) these notes now answer>", ...],
@@ -35,6 +38,7 @@ deal_signal: "advancing" if there's momentum (next meeting booked, buying signal
 stage_suggestion: only suggest a LATER stage than the current one if the notes clearly indicate it (e.g. demo scheduled -> "demo", contract/pricing sign-off discussion -> "closing"); otherwise null.
 resolved_commitments / addressed_objections: copy the prior item's text EXACTLY as given in context so it can be matched; empty arrays if nothing was resolved.
 verbatim_phrases: 3-6 short quotes max, only genuinely distinctive phrasing in the prospect's own words (e.g. "leadership will review after Diwali"); empty array if the notes contain none.
+competitors: a competitor or alternative-vendor mention is NEVER optional, however offhand ("talking to X too", "X also pitched us", "comparing with X") — always capture it. process_facts and relationship_notes likewise: procurement/legal/security/timeline mechanics and channel/contact preferences are deal-critical, capture every one the notes contain.
 fit: include ONLY the keys the notes actually answer about business fit — where demand comes from, appetite/capacity for new customers, deal economics, growth intent. Omit keys the notes don't cover; {} if none. If the fit answers indicate a POOR fit for a ~$800/mo demand-generation service (demand isn't their problem, no capacity for new orders, economics don't pencil, winding down), set fit_reason, set deal_signal to "at_risk", and set stage_suggestion to "disqualified" when it is clear-cut — the manager should see WHY the deal died, not a mystery dead deal.`;
 
 const SENTIMENTS = ["positive", "neutral", "negative", "mixed"];
@@ -280,7 +284,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (extracted) extracted = sanitizeExtracted(extracted, prospect);
+    if (extracted) {
+      extracted = sanitizeExtracted(extracted, prospect);
+      // Stamp competitor sightings with the real meeting date.
+      const meetingDate = (meeting.scheduled_at ?? meeting.created_at ?? new Date().toISOString()) as string;
+      extracted.competitors = (extracted.competitors ?? []).map((c) => ({ ...c, mentioned_at: meetingDate }));
+    }
 
     if (!extracted) {
       warnings.push(FAILURE_COPY[failCode ?? "unknown"]);
