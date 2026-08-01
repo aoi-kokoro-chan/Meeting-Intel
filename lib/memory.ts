@@ -10,6 +10,9 @@ export type Extracted = {
   resolved_commitments?: string[];
   addressed_objections?: string[];
   verbatim_phrases?: string[];
+  fit?: Record<string, string>;
+  fit_reason?: string | null;
+  resolved_fit_unknowns?: string[];
   next_step: string | null;
   sentiment: string;
   deal_signal: "advancing" | "stalling" | "at_risk";
@@ -23,6 +26,9 @@ export type Memory = {
   commitments: Commitment[];
   resolutions?: string[];
   verbatim_phrases?: string[];
+  fit?: Record<string, string>;
+  fit_reason?: string | null;
+  fit_unknowns?: string[];
   next_step: string | null;
   last_sentiment?: string;
   facts?: string[];
@@ -55,6 +61,9 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     commitments: existing?.commitments ?? [],
     resolutions: existing?.resolutions ?? [],
     verbatim_phrases: existing?.verbatim_phrases ?? [],
+    fit: existing?.fit ?? {},
+    fit_reason: existing?.fit_reason ?? null,
+    fit_unknowns: existing?.fit_unknowns ?? [],
     next_step: existing?.next_step ?? null,
     last_sentiment: existing?.last_sentiment,
     facts: existing?.facts ?? [],
@@ -99,6 +108,19 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     ...(mem.verbatim_phrases ?? []),
     ...(extracted.verbatim_phrases ?? []),
   ]).slice(0, 10);
+
+  // Fit resolutions: answered questions overwrite, resolved unknowns drop off.
+  mem.fit = existing?.fit ?? {};
+  if (extracted.fit && typeof extracted.fit === "object") {
+    mem.fit = { ...mem.fit, ...extracted.fit };
+  }
+  if (extracted.fit_reason?.trim()) mem.fit_reason = extracted.fit_reason.trim();
+  const resolvedUnknowns = new Set((extracted.resolved_fit_unknowns ?? []).map((u) => u.trim().toLowerCase()));
+  mem.fit_unknowns = (existing?.fit_unknowns ?? []).filter((u) => !resolvedUnknowns.has(u.trim().toLowerCase()));
+  if (Object.keys(extracted.fit ?? {}).length > 0 && resolvedUnknowns.size === 0) {
+    // Fit facts arrived without explicit matches — the unknowns are stale either way.
+    mem.fit_unknowns = [];
+  }
 
   if (extracted.next_step?.trim()) mem.next_step = extracted.next_step.trim();
   if (extracted.sentiment) mem.last_sentiment = extracted.sentiment;

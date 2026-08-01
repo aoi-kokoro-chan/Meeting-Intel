@@ -57,6 +57,9 @@ function fmtDate(iso: string | null): string {
 }
 
 function latestSignalReason(p: ProspectRow): string {
+  if (p.stage === "disqualified" && p.memory?.fit_reason) {
+    return `Disqualified: ${p.memory.fit_reason}`;
+  }
   const doneWithExtract = p.meetings.filter((m) => m.extracted?.summary);
   if (doneWithExtract.length > 0) return doneWithExtract[0].extracted!.summary!;
   const flagged = p.meetings.find((m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution");

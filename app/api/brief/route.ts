@@ -26,6 +26,8 @@ OPEN LOOPS: the context lists all prior commitments and objections with their me
 
 MIRROR THEIR LANGUAGE: verbatim_phrases in the context are the prospect's own words. Use these exact terms in talk_track and questions_to_ask wherever they fit naturally.
 
+RESOLVE FIT FIRST: fit_unknowns in the context are unresolved questions about whether this prospect is even a fit. On a DISCOVERY call they OUTRANK generic discovery questions: turn each one into a natural, conversational question and put them FIRST in questions_to_ask, each prefixed with "Resolve fit first: " — e.g. "Unknown: where does their demand come from today?" becomes "Resolve fit first: How do new customers typically find you today?"; capacity appetite becomes "Resolve fit first: If 10 qualified enquiries landed next month, could you take them on?"; economics becomes "Resolve fit first: Roughly what does a new customer end up being worth to you?". Generic questions come after. If fit_unknowns is empty, no prefixed questions.
+
 Return JSON with exactly these keys:
 {
   "headline": "<one punchy sentence framing this meeting>",
@@ -156,6 +158,8 @@ export async function POST(req: NextRequest) {
       all_objections: loopObjections,
       resolutions: memory.resolutions ?? [],
       verbatim_phrases: memory.verbatim_phrases ?? [],
+      fit_unknowns: memory.fit_unknowns ?? [],
+      known_fit: memory.fit ?? {},
       past_meetings: (pastMeetings ?? []).map((m, i) => ({
         n: i + 1,
         type: m.meeting_type,

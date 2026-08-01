@@ -13,12 +13,14 @@ Decide whether a sales rep should take an upcoming meeting. Rules:
 - Flag clearly unqualified prospects: no plausible budget for ~$800+/mo services, students, B2C hobbyists, wrong buyer persona.
 - Flag the wrong stakeholder for a closing call (e.g. a junior contact with no buying authority).
 - Prefer "caution" over "do_not_take" when uncertain.
-- Use your own knowledge of this company if it is well-known (industry, size, what they do), even if the website scrape returned nothing. Only treat a company as unknown if it is genuinely obscure AND the scrape failed — a famous brand must never come back as "unknown".
+- Use your own knowledge of this company if it is well-known (industry, size, what they do), even if the scrape returned nothing. Only treat a company as unknown if it is genuinely obscure AND the scrape failed — a famous brand must never come back as "unknown".
+
+ABSENCE OF A WEBSITE (or a weak web presence) IS AN AMBIGUOUS SIGNAL — never a verdict driver by itself. It can mean "invisible online and losing deals" (a STRONG fit for Gushwork) or "demand isn't their problem" (poor fit). Poor-fit archetypes behind a weak web presence: relationship- or subcontract-locked shops, businesses at full capacity with long backlogs, marketplace-native sellers (Thomasnet, Grainger, IndiaMART), tender-driven contractors, sub-scale operators where ~$800/mo doesn't pencil, and wind-down businesses. When the signals are ambiguous, keep the verdict at "go" or "caution" and put the unresolved questions into fit_unknowns (0-3 short items), e.g. "Unknown: where does their demand come from today?", "Unknown: do they have capacity appetite for more orders?", "Unknown: can they sustain ~$800/mo with a month-4 payback?". Leave fit_unknowns empty when fit is clear.
 
 If no website was provided, infer the most likely official domain from the company name (e.g. "American Express" -> "americanexpress.com").
-Return JSON: {"verdict": "go" | "caution" | "do_not_take", "reason": "<one sentence>", "inferred_domain": "<official domain like example.com, only when no website was provided, else null>"}`;
+Return JSON: {"verdict": "go" | "caution" | "do_not_take", "reason": "<one sentence>", "fit_unknowns": ["<short unresolved fit question>", ...], "inferred_domain": "<official domain like example.com, only when no website was provided, else null>"}`;
 
-type TriageResult = { verdict: string; reason: string; inferred_domain?: string | null };
+type TriageResult = { verdict: string; reason: string; fit_unknowns?: string[]; inferred_domain?: string | null };
 
 export async function POST(req: NextRequest) {
   try {
@@ -128,6 +130,22 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
       if (updatedMeeting) finalMeeting = updatedMeeting;
+
+      // Unresolved fit questions live in memory so the discovery brief can
+      // put them at the top of questions_to_ask.
+      if (Array.isArray(triage.fit_unknowns) && triage.fit_unknowns.length > 0) {
+        const memoryWithUnknowns = {
+          ...(prospect.memory ?? {}),
+          fit_unknowns: triage.fit_unknowns.filter((u) => typeof u === "string" && u.trim()).slice(0, 3),
+        };
+        const { data: pU } = await db
+          .from("prospects")
+          .update({ memory: memoryWithUnknowns })
+          .eq("id", prospect.id)
+          .select()
+          .single();
+        if (pU) prospect = pU;
+      }
 
       // No website given: save the LLM-inferred domain (marked as inferred) and
       // warm the scrape best-effort so the brief call has a readable site.
