@@ -23,13 +23,13 @@ export async function GET(req: NextRequest) {
     let prospect = null;
 
     if (name.length >= 3) {
-      const { data } = await db.from("prospects").select("*").ilike("company_name", name).maybeSingle();
+      const { data } = await db.from("prospects").select("*").ilike("company_name", name).is("archived_at", null).maybeSingle();
       prospect = data;
     }
     if (!prospect && website) {
       const domain = normalizeDomain(website);
       if (domain) {
-        const { data } = await db.from("prospects").select("*").ilike("website", domain).maybeSingle();
+        const { data } = await db.from("prospects").select("*").ilike("website", domain).is("archived_at", null).maybeSingle();
         prospect = data;
       }
     }

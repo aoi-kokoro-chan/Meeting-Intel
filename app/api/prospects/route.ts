@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { askLLMJson, LLMUnavailableError } from "@/lib/groq";
 import { scrapeSite } from "@/lib/scrape";
 import { REP_COOKIE, resolveRep } from "@/lib/reps";
+import { sweepProvisional } from "@/lib/archive";
 
 export const maxDuration = 60;
 
@@ -65,7 +66,8 @@ export async function POST(req: NextRequest) {
 
     let prospect = existing;
     if (existing) {
-      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      // New activity revives an archived account.
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString(), archived_at: null };
       if (website?.trim()) updates.website = website.trim();
       if (contact_name?.trim()) updates.contact_name = contact_name.trim();
       if (contact_role?.trim()) updates.contact_role = contact_role.trim();
@@ -233,11 +235,13 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const db = supabaseAdmin();
+    await sweepProvisional(db);
     const currentRep = resolveRep(req.cookies.get(REP_COOKIE)?.value);
     const { data: prospects, error } = await db
       .from("prospects")
       .select("*, meetings(*)")
       .eq("owner_rep", currentRep)
+      .is("archived_at", null)
       .order("updated_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     for (const p of prospects ?? []) {

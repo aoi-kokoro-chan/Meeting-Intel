@@ -2,7 +2,9 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Memory } from "@/lib/memory";
 import { deriveRoster, repColor, repInitial } from "@/lib/reps";
+import { sweepProvisional } from "@/lib/archive";
 import ViewSegment from "../view-segment";
+import ArchiveButton from "../archive-button";
 
 export const dynamic = "force-dynamic";
 
@@ -89,9 +91,11 @@ export default async function ManagerView({
   let loadError: string | null = null;
   try {
     const db = supabaseAdmin();
+    await sweepProvisional(db);
     const { data, error } = await db
       .from("prospects")
       .select("*, meetings(*)")
+      .is("archived_at", null)
       .order("updated_at", { ascending: false });
     if (error) loadError = error.message;
     prospects = (data ?? []) as ProspectRow[];
@@ -108,14 +112,23 @@ export default async function ManagerView({
   // Table + stat cards respect the rep filter; signal cards stay global.
   const visible = repFilter ? prospects.filter((p) => p.owner_rep === repFilter) : prospects;
 
-  const active = visible.filter((p) => !["disqualified", "closed_lost"].includes(p.stage));
-  const advancing = visible.filter((p) => p.deal_health === "advancing");
-  const troubled = visible.filter((p) => p.deal_health === "stalling" || p.deal_health === "at_risk");
+  // A prospect whose only history is a do_not_take flag with no completed call
+  // is not a deal — it belongs in "Flagged by triage" only.
+  const isFlaggedOnly = (p: ProspectRow) =>
+    !p.meetings.some((m) => m.status === "done") && p.meetings[0]?.triage_verdict === "do_not_take";
+  const isActiveDeal = (p: ProspectRow) =>
+    !["disqualified", "closed_lost"].includes(p.stage) && !isFlaggedOnly(p);
+
+  const active = visible.filter(isActiveDeal);
+  const advancing = visible.filter((p) => isActiveDeal(p) && p.deal_health === "advancing");
+  const troubled = visible.filter(
+    (p) => isActiveDeal(p) && (p.deal_health === "stalling" || p.deal_health === "at_risk")
+  );
   const flaggedMeetings = visible
     .flatMap((p) => p.meetings)
     .filter((m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution");
 
-  const allActive = prospects.filter((p) => !["disqualified", "closed_lost"].includes(p.stage));
+  const allActive = prospects.filter(isActiveDeal);
 
   const sorted = [...visible].sort((a, b) => {
     const h = (HEALTH_SORT[a.deal_health] ?? 2) - (HEALTH_SORT[b.deal_health] ?? 2);
@@ -340,7 +353,10 @@ export default async function ManagerView({
                   </span>
                 </summary>
                 <div className="bg-slate-50 px-5 py-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Meeting timeline</p>
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Meeting timeline</p>
+                    <ArchiveButton prospectId={p.id} />
+                  </div>
                   <div className="space-y-2">
                     {p.meetings.length === 0 && <p className="text-sm text-slate-500">No meetings recorded.</p>}
                     {[...p.meetings].reverse().map((m) => (

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import ViewSegment from "./view-segment";
+import ArchiveButton from "./archive-button";
 import { DEFAULT_REP, REP_COOKIE, PERSONA_COOKIE, repColor, repInitial } from "@/lib/reps";
 
 function getCookie(name: string): string | null {
@@ -1083,6 +1084,9 @@ export default function RepView() {
                 </button>
                 {expanded === p.id && (
                   <div className="border-t border-slate-100 px-4 pb-4">
+                    <div className="mt-2 flex justify-end">
+                      <ArchiveButton prospectId={p.id} onDone={loadProspects} />
+                    </div>
                     {p.meetings.map((m) => (
                       <div key={m.id} className="mt-3 rounded-xl bg-slate-50 p-3">
                         <div className="flex items-center justify-between gap-2">
