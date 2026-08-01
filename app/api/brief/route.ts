@@ -22,6 +22,12 @@ Be specific and concrete. For meeting history, stakeholders, and quotes, use ONL
 
 ATTRIBUTE prior knowledge: every item in what_we_know and every claim in last_meeting_recap must say which rep learned it and when, using each past meeting's rep and date from the context, e.g. "From Sales Rep B's discovery call (Jul 12): no budget owner identified yet".
 
+HONESTY RULES:
+- If past_meetings is empty, this is the FIRST meeting: nothing may be attributed to any call (there were none), and last_meeting_recap must be "". what_we_know then draws only from the website content.
+- If the website could not be read AND there is no meeting history or stored memory, what_we_know must be an EMPTY array. Do not pad it.
+- Never present a system or tooling failure (site unreadable, scrape failed, page unavailable) as a fact about the company anywhere in the brief — that is our problem, not intelligence about them.
+- Never restate the rep's own form inputs (the contact name/role, company name, or website they just typed) as intelligence in what_we_know. Omit them, or prefix explicitly with "Rep-provided:".
+
 OPEN LOOPS: the context lists all prior commitments and objections with their meeting dates, plus a "resolutions" list of items already delivered/addressed. Every commitment NOT in resolutions and every objection NOT in resolutions must appear in open_loops with its age, e.g. "ROI sheet promised 6 days ago — unresolved". Empty array if nothing is open.
 
 MIRROR THEIR LANGUAGE: verbatim_phrases in the context are the prospect's own words. Use these exact terms in talk_track and questions_to_ask wherever they fit naturally.
@@ -56,9 +62,23 @@ export type Brief = {
   intel_from?: string[];
   readiness_gaps?: string[];
   verbatim_phrases?: string[];
+  cold_start?: boolean;
   ai_unavailable?: boolean;
   generated_at?: string;
 };
+
+// Generic system-failure phrasing must never appear as intelligence.
+const SYSTEM_FAILURE_RE =
+  /unavailab|unreadab|couldn'?t (read|load|fetch|access)|could not (be )?(read|load|fetch|access)|website (is )?(down|inaccessible)|scrape|403|404|forbidden|returned an? error/i;
+
+function stripFailureSentences(text: string | undefined): string {
+  if (!text?.trim()) return "";
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => !SYSTEM_FAILURE_RE.test(s))
+    .join(" ")
+    .trim();
+}
 
 function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -183,6 +203,29 @@ export async function POST(req: NextRequest) {
       } else {
         throw err;
       }
+    }
+
+    // Honesty enforcement in code: no tooling failures as facts, no padded
+    // cold-start briefs.
+    brief.what_we_know = (brief.what_we_know ?? []).filter((i) => !SYSTEM_FAILURE_RE.test(i));
+    brief.company_snapshot = stripFailureSentences(brief.company_snapshot);
+    // Meeting 1 has no history: drop any item the model attributed to a call.
+    if ((pastMeetings?.length ?? 0) === 0) {
+      brief.what_we_know = brief.what_we_know.filter(
+        (i) => !/from .{0,40}(call|meeting)|\b(discovery|demo|closing) call\b/i.test(i)
+      );
+      brief.last_meeting_recap = "";
+    }
+    const hasHistory =
+      (pastMeetings?.length ?? 0) > 0 ||
+      (memory.pains?.length ?? 0) > 0 ||
+      (memory.stakeholders?.length ?? 0) > 0 ||
+      (memory.facts?.length ?? 0) > 0;
+    if (!siteText && !hasHistory) {
+      // company_snapshot may keep genuine background knowledge of a well-known
+      // brand; what_we_know carries only earned intelligence, so it goes empty.
+      brief.what_we_know = [];
+      brief.cold_start = true;
     }
 
     // Cross-rep intel chip: which other reps' calls fed this brief.

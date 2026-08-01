@@ -259,6 +259,7 @@ type Brief = {
   intel_from?: string[];
   readiness_gaps?: string[];
   verbatim_phrases?: string[];
+  cold_start?: boolean;
   ai_unavailable?: boolean;
 };
 
@@ -440,6 +441,12 @@ function BriefPanel({
             {brief.ai_unavailable && (
               <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 AI briefly rate-limited when this brief was generated — it shows what we knew at the time.
+              </div>
+            )}
+            {brief.cold_start && (
+              <div className="rounded-xl border border-slate-300 bg-slate-100 p-3 text-sm text-slate-600">
+                No prior calls and we couldn&apos;t read their site — this brief is starting cold. It will get sharper
+                after your first call notes.
               </div>
             )}
             {(brief.readiness_gaps?.length ?? 0) > 0 && (
