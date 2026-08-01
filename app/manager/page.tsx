@@ -96,6 +96,7 @@ export default async function ManagerView({
   const { rep: repParam, archived: archivedParam } = await searchParams;
   const showArchived = archivedParam === "1";
   let prospects: ProspectRow[] = [];
+  let archivedCount = 0;
   let loadError: string | null = null;
   try {
     const db = supabaseAdmin();
@@ -104,6 +105,11 @@ export default async function ManagerView({
     // Read-only archived surface: archive mechanics themselves are unchanged.
     query = showArchived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
     const { data, error } = await query;
+    const { count } = await db
+      .from("prospects")
+      .select("*", { count: "exact", head: true })
+      .not("archived_at", "is", null);
+    archivedCount = count ?? 0;
     if (error) loadError = error.message;
     prospects = (data ?? []) as ProspectRow[];
     for (const p of prospects) {
@@ -293,7 +299,7 @@ export default async function ManagerView({
               href={showArchived ? "/manager" : "/manager?archived=1"}
               className="mr-2 text-xs font-medium text-blue-600 hover:underline"
             >
-              {showArchived ? "← Back to active" : "Archived →"}
+              {showArchived ? "← Back to active" : `Archived (${archivedCount}) →`}
             </Link>
             <Link
               href="/manager"
@@ -373,10 +379,16 @@ export default async function ManagerView({
                   </span>
                   <span className="text-sm text-slate-600">{p.meetings.length}</span>
                   <span className="text-sm text-slate-600">{relativeTime(p.updated_at)}</span>
-                  <span className="truncate text-sm text-slate-600" title={p.memory?.next_step ?? undefined}>
+                  <span
+                    className="overflow-hidden text-sm text-slate-600 [-webkit-box-orient:vertical] [-webkit-line-clamp:1] [display:-webkit-box] hover:[-webkit-line-clamp:unset]"
+                    title={p.memory?.next_step ?? undefined}
+                  >
                     {p.memory?.next_step ?? <span className="text-slate-400">— none captured</span>}
                   </span>
-                  <span className="truncate text-sm text-slate-500 col-span-2 md:col-span-1" title={latestSignalReason(p)}>
+                  <span
+                    className="col-span-2 overflow-hidden text-sm text-slate-500 [-webkit-box-orient:vertical] [-webkit-line-clamp:1] [display:-webkit-box] hover:[-webkit-line-clamp:unset] md:col-span-1"
+                    title={latestSignalReason(p)}
+                  >
                     {latestSignalReason(p)}
                   </span>
                 </summary>
