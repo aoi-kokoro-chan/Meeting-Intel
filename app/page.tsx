@@ -310,6 +310,41 @@ const SIGNAL_BADGE: Record<string, string> = {
   at_risk: "bg-red-100 text-red-800",
 };
 
+const CLOSED_STAGES = ["closed_won", "disqualified", "closed_lost"];
+
+// Same activity notion as the manager view: latest of notes saved / meeting
+// completed / meeting created / reassignment.
+function lastTrackedAt(p: Prospect): number {
+  const now = Date.now();
+  const times = [new Date(p.updated_at).getTime()];
+  for (const m of p.meetings) {
+    times.push(new Date(m.created_at).getTime());
+    if (m.status === "done" && m.scheduled_at) {
+      const t = new Date(m.scheduled_at).getTime();
+      if (t <= now) times.push(t);
+    }
+  }
+  const log = (p.memory as { ownership_log?: { at: string }[] })?.ownership_log ?? [];
+  for (const t of log) times.push(new Date(t.at).getTime());
+  return Math.max(...times.filter((t) => !Number.isNaN(t)));
+}
+
+// Soonest upcoming meeting time, or null if none.
+function nextUpcomingAt(p: Prospect): number | null {
+  const times = p.meetings
+    .filter((m) => m.status === "upcoming")
+    .map((m) => new Date(m.scheduled_at ?? m.created_at).getTime())
+    .filter((t) => !Number.isNaN(t));
+  return times.length ? Math.min(...times) : null;
+}
+
+function hasMeetingToday(p: Prospect): boolean {
+  const today = new Date().toDateString();
+  return p.meetings.some(
+    (m) => m.status === "upcoming" && m.scheduled_at && new Date(m.scheduled_at).toDateString() === today
+  );
+}
+
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
@@ -616,6 +651,8 @@ export default function RepView() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [pipelineSearch, setPipelineSearch] = useState("");
+  const [pipelineScope, setPipelineScope] = useState<"active" | "all">("active");
 
   const resultRef = useRef<HTMLDivElement>(null);
   const companyRef = useRef<HTMLInputElement>(null);
@@ -873,6 +910,23 @@ export default function RepView() {
   const inputCls =
     "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none";
 
+  // Findability, not filters: scope toggle + (for long lists) search, with
+  // upcoming meetings first, then recent activity, closed deals always last.
+  const pipelineList = prospects
+    .filter((p) => (pipelineScope === "all" ? true : !CLOSED_STAGES.includes(p.stage)))
+    .filter((p) =>
+      pipelineSearch.trim() ? p.company_name.toLowerCase().includes(pipelineSearch.trim().toLowerCase()) : true
+    )
+    .sort((a, b) => {
+      const rank = (p: Prospect) =>
+        CLOSED_STAGES.includes(p.stage) ? 2 : nextUpcomingAt(p) !== null ? 0 : 1;
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      if (ra === 0) return (nextUpcomingAt(a) ?? 0) - (nextUpcomingAt(b) ?? 0); // soonest first
+      return lastTrackedAt(b) - lastTrackedAt(a);
+    });
+
   if (boot === "loading") return null;
   if (boot === "gate") {
     return <PersonaGate roster={roster} repExpanded={gateRepExpanded} onPickRep={enterAsRep} />;
@@ -1105,7 +1159,31 @@ export default function RepView() {
 
       {/* Prospect list */}
       <section className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Your pipeline</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Your pipeline</h2>
+          <div className="flex gap-0.5 rounded-lg bg-slate-200/70 p-0.5">
+            {(["active", "all"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setPipelineScope(s)}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
+                  pipelineScope === s ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+                aria-pressed={pipelineScope === s}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+        {prospects.length > 8 && (
+          <input
+            value={pipelineSearch}
+            onChange={(e) => setPipelineSearch(e.target.value)}
+            placeholder="Search companies…"
+            className={`${inputCls} mb-3`}
+          />
+        )}
         {!listLoaded ? (
           <p className="text-sm text-slate-400">Loading…</p>
         ) : prospects.length === 0 ? (
@@ -1133,9 +1211,13 @@ export default function RepView() {
               Try an example
             </button>
           </div>
+        ) : pipelineList.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
+            {pipelineSearch.trim() ? "No companies match your search." : "No active deals — switch to All to see closed ones."}
+          </p>
         ) : (
           <ul className="space-y-2">
-            {prospects.map((p) => (
+            {pipelineList.map((p) => (
               <li key={p.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <button
                   className="flex w-full items-center gap-3 p-4 text-left"
@@ -1151,6 +1233,11 @@ export default function RepView() {
                       {p.meetings.length} meeting{p.meetings.length === 1 ? "" : "s"} · last activity {relativeTime(p.updated_at)}
                     </span>
                   </span>
+                  {hasMeetingToday(p) && (
+                    <span className="shrink-0 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Today
+                    </span>
+                  )}
                   <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium capitalize text-slate-600">
                     {p.stage.replace("_", " ")}
                   </span>
