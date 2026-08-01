@@ -30,6 +30,7 @@ export type Memory = {
   objections: string[];
   commitments: Commitment[];
   resolutions?: string[];
+  resolution_log?: { text: string; date: string }[];
   verbatim_phrases?: string[];
   competitors?: Competitor[];
   process_facts?: string[];
@@ -52,6 +53,40 @@ export function hasSeniorStakeholder(memory: Partial<Memory> | null): boolean {
 }
 
 const STAGE_ORDER = ["discovery", "demo", "closing", "closed_won"];
+
+// Loose semantic match for resolution subtraction: normalized equality,
+// containment either way, or high token overlap — not exact string equality.
+function normalizeLoose(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function looselyMatches(a: string, b: string): boolean {
+  const na = normalizeLoose(a);
+  const nb = normalizeLoose(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const ta = new Set(na.split(" "));
+  const tb = new Set(nb.split(" "));
+  const overlap = [...ta].filter((t) => tb.has(t)).length;
+  return overlap / Math.min(ta.size, tb.size) >= 0.7;
+}
+
+// Sane growth caps per memory array — newest entries win on overflow.
+const ARRAY_CAPS: Record<string, number> = {
+  pains: 15,
+  stakeholders: 15,
+  objections: 12,
+  commitments: 15,
+  resolutions: 30,
+  resolution_log: 30,
+  verbatim_phrases: 10,
+  competitors: 10,
+  process_facts: 15,
+  relationship_notes: 10,
+  blockers: 10,
+  facts: 15,
+  fit_unknowns: 3,
+};
 
 function dedupeStrings(arr: string[]): string[] {
   const seen = new Set<string>();
@@ -106,12 +141,24 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     }
   }
 
-  // Resolved loops: delivered commitments + addressed objections stop rolling forward.
+  // Resolved loops: delivered commitments + addressed objections stop rolling
+  // forward — recorded in resolutions AND subtracted from the open arrays via
+  // loose semantic matching, so memory doesn't only accumulate.
   mem.resolutions = dedupeStrings([
     ...(mem.resolutions ?? []),
     ...(extracted.resolved_commitments ?? []),
     ...(extracted.addressed_objections ?? []),
   ]);
+  const resolvedNow = [...(extracted.resolved_commitments ?? []), ...(extracted.addressed_objections ?? [])];
+  mem.resolution_log = [
+    ...(existing?.resolution_log ?? []),
+    ...resolvedNow.map((text) => ({ text, date: new Date().toISOString() })),
+  ];
+  const allResolutions = mem.resolutions ?? [];
+  mem.objections = (mem.objections ?? []).filter((o) => !allResolutions.some((r) => looselyMatches(o, r)));
+  mem.commitments = (mem.commitments ?? []).filter(
+    (c) => !allResolutions.some((r) => looselyMatches(`${c.who}: ${c.what}`, r) || looselyMatches(c.what ?? "", r))
+  );
 
   // The prospect's own words, capped so the list stays sharp.
   mem.verbatim_phrases = dedupeStrings([
@@ -154,6 +201,13 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
 
   if (extracted.next_step?.trim()) mem.next_step = extracted.next_step.trim();
   if (extracted.sentiment) mem.last_sentiment = extracted.sentiment;
+
+  // Cap array growth — keep the newest entries when a list overflows.
+  const memRecord = mem as unknown as Record<string, unknown>;
+  for (const [key, cap] of Object.entries(ARRAY_CAPS)) {
+    const v = memRecord[key];
+    if (Array.isArray(v) && v.length > cap) memRecord[key] = v.slice(-cap);
+  }
   return mem;
 }
 

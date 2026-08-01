@@ -27,16 +27,21 @@ export async function runSeed(db: SupabaseClient): Promise<{ prospects: number; 
       { name: "Arjun Nair", role: "GM Marketing", notes: "Champion. Owns digital budget, wants to look good on US/EU expansion." },
       { name: "Priya Venkat", role: "CFO office", notes: "Wants cost-per-lead proof vs what they spend on trade shows." },
     ],
-    objections: [
-      "Burned by current agency's generic content — skeptical any agency can write credible technical content",
-      "CFO office wants cost-per-lead comparison against trade-show spend before approving",
-    ],
+    // The "burned by current agency" objection was addressed during the demo —
+    // it lives in resolutions/resolution_log, NOT in the open objections list.
+    objections: ["CFO office wants cost-per-lead comparison against trade-show spend before approving"],
     commitments: [
       { who: "Rep", what: "Send ROI sheet + case study of a similar industrial manufacturer with pricing in both $ and ₹", when: "by Friday" },
       { who: "Arjun Nair", what: "Get Priya Venkat from CFO office to join the closing call", when: "next call" },
     ],
     resolutions: [
       "Burned by current agency's generic content — skeptical any agency can write credible technical content",
+    ],
+    resolution_log: [
+      {
+        text: "Burned by current agency's generic content — addressed at the demo with technical samples",
+        date: daysAgo(9),
+      },
     ],
     verbatim_phrases: [
       "we're invisible where our buyers actually look",
