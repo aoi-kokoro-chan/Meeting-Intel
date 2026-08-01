@@ -3,13 +3,33 @@ import Groq from "groq-sdk";
 const PRIMARY_MODEL = "llama-3.3-70b-versatile";
 const FALLBACK_MODEL = "llama-3.1-8b-instant";
 
+// Distinct failure classes — callers pick recovery strategy and user copy.
+// too_large: request exceeds per-request/TPM token budget (Groq 413 / 400-size)
+// rate_limited: 429 request-rate limit
+// outage: 5xx or network/timeout
+// malformed: model replied but output was unusable JSON
+export type LLMErrorCode = "too_large" | "rate_limited" | "outage" | "malformed" | "unknown";
+
 // Thrown when every attempt (retry + fallback model) failed. Routes catch
 // this and degrade to a memory-only response instead of a blank failure.
 export class LLMUnavailableError extends Error {
-  constructor(message = "LLM unavailable after retries") {
+  code: LLMErrorCode;
+  constructor(message = "LLM unavailable after retries", code: LLMErrorCode = "unknown") {
     super(message);
     this.name = "LLMUnavailableError";
+    this.code = code;
   }
+}
+
+export function classifyLLMError(err: unknown): LLMErrorCode {
+  const status = (err as GroqError)?.status;
+  const msg = String((err as Error)?.message ?? "");
+  if (status === 413) return "too_large";
+  if (status === 400 && /token|context|length|too large|maximum|payload/i.test(msg)) return "too_large";
+  if (status === 429) return "rate_limited";
+  if (typeof status === "number" && status >= 500) return "outage";
+  if ((err as Error)?.name === "AbortError" || /timed? ?out|network|fetch failed|ECONN/i.test(msg)) return "outage";
+  return "unknown";
 }
 
 function getClient() {
@@ -51,22 +71,34 @@ export async function askLLM(system: string, user: string): Promise<string> {
   try {
     return await complete(system, user, PRIMARY_MODEL);
   } catch (err) {
+    const code = classifyLLMError(err);
+    // Oversized requests never succeed on retry — surface immediately so the
+    // caller can chunk the input instead.
+    if (code === "too_large") {
+      console.error(`[groq] request too large: ${String((err as Error)?.message ?? "").slice(0, 200)}`);
+      throw new LLMUnavailableError(String((err as Error)?.message ?? err), "too_large");
+    }
     if (isDecommissioned(err)) {
       // Primary model gone: go straight to fallback.
     } else if (isRetryable(err)) {
       await sleep(2000);
       try {
         return await complete(system, user, PRIMARY_MODEL);
-      } catch {
+      } catch (e2) {
+        if (classifyLLMError(e2) === "too_large") {
+          throw new LLMUnavailableError(String((e2 as Error)?.message ?? e2), "too_large");
+        }
         // fall through to fallback model
       }
     } else {
-      throw new LLMUnavailableError(String((err as Error)?.message ?? err));
+      throw new LLMUnavailableError(String((err as Error)?.message ?? err), code);
     }
     try {
       return await complete(system, user, FALLBACK_MODEL);
     } catch (err2) {
-      throw new LLMUnavailableError(String((err2 as Error)?.message ?? err2));
+      const c2 = classifyLLMError(err2);
+      console.error(`[groq] all attempts failed (${c2}): ${String((err2 as Error)?.message ?? "").slice(0, 200)}`);
+      throw new LLMUnavailableError(String((err2 as Error)?.message ?? err2), c2 === "unknown" ? code : c2);
     }
   }
 }
@@ -97,7 +129,8 @@ export async function askLLMJson<T = unknown>(system: string, user: string): Pro
     try {
       return JSON.parse(stripFences(retry)) as T;
     } catch {
-      throw new LLMUnavailableError("LLM returned unparseable JSON twice");
+      console.error("[groq] unparseable JSON after retry");
+      throw new LLMUnavailableError("LLM returned unparseable JSON twice", "malformed");
     }
   }
 }
