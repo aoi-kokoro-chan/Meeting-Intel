@@ -28,9 +28,9 @@ HONESTY RULES:
 - Never present a system or tooling failure (site unreadable, scrape failed, page unavailable) as a fact about the company anywhere in the brief — that is our problem, not intelligence about them.
 - Never restate the rep's own form inputs (the contact name/role, company name, or website they just typed) as intelligence in what_we_know. Omit them, or prefix explicitly with "Rep-provided:".
 
-OPEN LOOPS: the context lists all prior commitments and objections with their meeting dates, plus a "resolutions" list of items already delivered/addressed. Every commitment NOT in resolutions and every objection NOT in resolutions must appear in open_loops with its age, e.g. "ROI sheet promised 6 days ago — unresolved". Empty array if nothing is open.
-
 MIRROR THEIR LANGUAGE: verbatim_phrases in the context are the prospect's own words. Use these exact terms in talk_track and questions_to_ask wherever they fit naturally.
+
+GROUNDED RECAP: last_meeting_recap must ONLY restate facts present in the most recent past meeting's notes/extracted/summary from the context — no inference, no additions, nothing from other meetings.
 
 RESOLVE FIT FIRST: fit_unknowns in the context are unresolved questions about whether this prospect is even a fit. On a DISCOVERY call they OUTRANK generic discovery questions: turn each one into a natural, conversational question and put them FIRST in questions_to_ask, each prefixed with "Resolve fit first: " — e.g. "Unknown: where does their demand come from today?" becomes "Resolve fit first: How do new customers typically find you today?"; capacity appetite becomes "Resolve fit first: If 10 qualified enquiries landed next month, could you take them on?"; economics becomes "Resolve fit first: Roughly what does a new customer end up being worth to you?". Generic questions come after. If fit_unknowns is empty, no prefixed questions.
 
@@ -40,7 +40,6 @@ Return JSON with exactly these keys:
   "company_snapshot": "<2-3 sentences on who they are, from site + context>",
   "what_we_know": ["<attributed bullet>", ...],
   "last_meeting_recap": "<2-3 sentences with rep + date attribution, or empty string if first meeting>",
-  "open_loops": ["<unresolved commitment or unaddressed objection with age>", ...],
   "open_threads": ["<other unresolved item>", ...],
   "likely_objections": ["<objection + suggested handling>", ...],
   "talk_track": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
@@ -140,25 +139,23 @@ export async function POST(req: NextRequest) {
     const guidance = TYPE_GUIDANCE[meeting.meeting_type] ?? TYPE_GUIDANCE.discovery;
     const memory: Partial<Memory> = prospect.memory ?? {};
 
-    // Open-loops context: commitments/objections with the date they surfaced.
-    type LoopItem = { text: string; from_meeting: string };
-    const loopCommitments: LoopItem[] = [];
-    const loopObjections: LoopItem[] = [];
+    // Open loops are DERIVED IN CODE (never model-invented): first, index when
+    // each stored commitment/objection surfaced, from real meeting timestamps.
+    const normText = (s: string) =>
+      s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+    const itemDates = new Map<string, number>();
     for (const m of pastMeetings ?? []) {
-      const date = fmtDay(m.scheduled_at ?? m.created_at);
+      const ts = new Date(m.scheduled_at ?? m.created_at).getTime();
       const ex = m.extracted as { commitments?: { who: string; what: string }[]; objections?: string[] } | null;
-      for (const c of ex?.commitments ?? []) loopCommitments.push({ text: `${c.who}: ${c.what}`, from_meeting: date });
-      for (const o of ex?.objections ?? []) loopObjections.push({ text: o, from_meeting: date });
-    }
-    // Memory items not captured per-meeting still roll forward (no date known).
-    for (const c of memory.commitments ?? []) {
-      const t = `${c.who}: ${c.what}`;
-      if (!loopCommitments.some((l) => l.text.toLowerCase() === t.toLowerCase()))
-        loopCommitments.push({ text: t, from_meeting: "earlier" });
-    }
-    for (const o of memory.objections ?? []) {
-      if (!loopObjections.some((l) => l.text.toLowerCase() === o.toLowerCase()))
-        loopObjections.push({ text: o, from_meeting: "earlier" });
+      for (const c of ex?.commitments ?? []) {
+        for (const k of [normText(`${c.who}: ${c.what}`), normText(c.what ?? "")]) {
+          if (k && (!itemDates.has(k) || ts < itemDates.get(k)!)) itemDates.set(k, ts);
+        }
+      }
+      for (const o of ex?.objections ?? []) {
+        const k = normText(o);
+        if (k && (!itemDates.has(k) || ts < itemDates.get(k)!)) itemDates.set(k, ts);
+      }
     }
 
     const context = {
@@ -174,9 +171,6 @@ export async function POST(req: NextRequest) {
       },
       persistent_memory: memory,
       today: fmtDay(new Date().toISOString()),
-      all_commitments: loopCommitments,
-      all_objections: loopObjections,
-      resolutions: memory.resolutions ?? [],
       verbatim_phrases: memory.verbatim_phrases ?? [],
       fit_unknowns: memory.fit_unknowns ?? [],
       known_fit: memory.fit ?? {},
@@ -204,6 +198,34 @@ export async function POST(req: NextRequest) {
         throw err;
       }
     }
+
+    // Open loops: computed purely from stored memory minus resolutions, with
+    // ages from real meeting timestamps. Whatever the model returned for this
+    // key is discarded.
+    const resolutionsNorm = (memory.resolutions ?? []).map(normText);
+    const isResolved = (t: string) =>
+      resolutionsNorm.some((r) => r === t || r.includes(t) || t.includes(r));
+    const ageLabel = (key1: string, key2?: string): string => {
+      const ts = itemDates.get(key1) ?? (key2 ? itemDates.get(key2) : undefined);
+      if (!ts) return "";
+      const days = Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+      return days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`;
+    };
+    const openLoops: string[] = [];
+    for (const c of memory.commitments ?? []) {
+      const full = normText(`${c.who}: ${c.what}`);
+      const short = normText(c.what ?? "");
+      if (!short || isResolved(full) || isResolved(short)) continue;
+      const age = ageLabel(full, short);
+      openLoops.push(`${c.who} promised: ${c.what}${age ? ` (${age})` : ""} — unresolved`);
+    }
+    for (const o of memory.objections ?? []) {
+      const k = normText(o);
+      if (!k || isResolved(k)) continue;
+      const age = ageLabel(k);
+      openLoops.push(`Objection${age ? ` raised ${age}` : ""}: ${o} — unaddressed`);
+    }
+    brief.open_loops = openLoops;
 
     // Honesty enforcement in code: no tooling failures as facts, no padded
     // cold-start briefs.
