@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
-import { deriveRoster, repColor, repInitial } from "@/lib/reps";
+import { repColor, repInitial } from "@/lib/reps";
+import { fetchRoster } from "@/lib/roster";
 import { sweepProvisional } from "@/lib/archive";
 import ViewSegment from "../view-segment";
 import DealsTable, { type ProspectRow } from "./deals-table";
@@ -12,10 +13,12 @@ const SENIOR_ROLE =
 
 export default async function ManagerView() {
   let prospects: ProspectRow[] = [];
+  let roster: string[] = [];
   let loadError: string | null = null;
   try {
     const db = supabaseAdmin();
     await sweepProvisional(db);
+    roster = await fetchRoster(db);
     // One fetch covers active and archived; the client-side "Show archived"
     // toggle decides visibility. Archive mechanics are unchanged.
     const { data, error } = await db
@@ -31,7 +34,6 @@ export default async function ManagerView() {
     loadError = (err as Error).message;
   }
 
-  const roster = deriveRoster(prospects, prospects.flatMap((p) => p.meetings));
   const unarchived = prospects.filter((p) => !p.archived_at);
 
   // ── Signal sections (unchanged at-risk surfacing) — active deals only ─────

@@ -35,13 +35,3 @@ export function resolveRep(value: string | undefined | null): string {
   const v = value?.trim();
   return v ? v : DEFAULT_REP;
 }
-
-export function deriveRoster(
-  prospects: { owner_rep?: string | null }[],
-  meetings: { rep_name?: string | null }[]
-): string[] {
-  const set = new Set<string>();
-  for (const p of prospects) if (p.owner_rep?.trim()) set.add(p.owner_rep.trim());
-  for (const m of meetings) if (m.rep_name?.trim()) set.add(m.rep_name.trim());
-  return [...set].sort((a, b) => a.localeCompare(b));
-}

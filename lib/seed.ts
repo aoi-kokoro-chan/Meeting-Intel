@@ -15,6 +15,13 @@ export async function runSeed(db: SupabaseClient): Promise<{ prospects: number; 
   const { error: delP } = await db.from("prospects").delete().not("id", "is", null);
   if (delP) throw new Error(`wipe prospects: ${delP.message}`);
 
+  // Re-assert the two default reps WITHOUT wiping the registry — a
+  // reviewer-created rep must survive a re-seed so their cookie keeps working.
+  const { error: repErr } = await db
+    .from("reps")
+    .upsert([{ name: "Sales Rep A" }, { name: "Sales Rep B" }], { onConflict: "name" });
+  if (repErr) console.warn(`reps upsert: ${repErr.message} (run the reps-table SQL if missing)`);
+
   // ─── 1. Elgi Equipments — demo stage, advancing ───────────────────────────
   console.log("Seeding Elgi Equipments…");
   const elgiMemory = {

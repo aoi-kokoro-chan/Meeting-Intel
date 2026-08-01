@@ -395,8 +395,17 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
 
         {sorted.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-            <p className="font-medium text-slate-700">No deals match the current filters.</p>
-            <p className="mt-1 text-sm text-slate-500">Adjust or clear the filters above.</p>
+            {owner !== "all" ? (
+              <>
+                <p className="font-medium text-slate-700">No deals assigned to {owner} yet.</p>
+                <p className="mt-1 text-sm text-slate-500">Reassign one from the table — clear the Owner filter, expand a deal, and use Reassign owner.</p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-slate-700">No deals match the current filters.</p>
+                <p className="mt-1 text-sm text-slate-500">Adjust or clear the filters above.</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

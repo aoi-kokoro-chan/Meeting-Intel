@@ -17,6 +17,30 @@ function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax`;
 }
 
+// Registers a new rep so the roster includes them before they own any data.
+// Returns the canonical name ("kiran" reuses an existing "Kiran"), "" to abort,
+// or falls back to the typed name if the API is unreachable.
+async function registerRepName(raw: string): Promise<string> {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const res = await fetch("/api/reps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    const data = await res.json();
+    if (res.ok && data.name) return data.name;
+    if (data.error) {
+      window.alert(data.error);
+      return "";
+    }
+  } catch {
+    // network hiccup — proceed with the typed name; the roster union keeps it
+  }
+  return trimmed;
+}
+
 function RepAvatar({ name, size = "h-7 w-7 text-xs" }: { name: string; size?: string }) {
   return (
     <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${size} ${repColor(name)}`}>
@@ -73,9 +97,9 @@ function RepSwitcher({ rep, roster, onSwitch }: { rep: string; roster: string[];
             <div className="my-1 border-t border-slate-100" />
             {adding ? (
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
-                  const name = newName.trim();
+                  const name = await registerRepName(newName);
                   if (!name) return;
                   close();
                   if (name !== rep) onSwitch(name);
@@ -184,9 +208,10 @@ function PersonaGate({
               </div>
               {adding && (
                 <form
-                  onSubmit={(e) => {
+                  onSubmit={async (e) => {
                     e.preventDefault();
-                    pickRep(newName);
+                    const name = await registerRepName(newName);
+                    if (name) pickRep(name);
                   }}
                   className="mt-3 flex gap-2"
                 >
