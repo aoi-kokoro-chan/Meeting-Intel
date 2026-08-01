@@ -191,14 +191,73 @@ const ACTIVITY_CHIP_LABEL: Record<string, string> = {
 
 const selectCls =
   "rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-slate-900 focus:outline-none";
+
+// Checkbox multi-select dropdown: stays open while selecting, closes on
+// outside click. Within one filter selections are OR; filters AND together.
+function MultiSelect({
+  name,
+  options,
+  selected,
+  onChange,
+  format = (v: string) => v,
+}: {
+  name: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  format?: (v: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerText =
+    selected.length === 0
+      ? `${name}: All`
+      : selected.length === 1
+      ? `${name} · ${format(selected[0])}`
+      : `${name} · ${selected.length}`;
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`${selectCls} flex items-center gap-1`}
+        aria-label={name}
+        aria-expanded={open}
+      >
+        {triggerText} <span className="text-slate-400">▾</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+            {options.map((o) => (
+              <label
+                key={o}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(o)}
+                  onChange={() =>
+                    onChange(selected.includes(o) ? selected.filter((x) => x !== o) : [...selected, o])
+                  }
+                  className="accent-slate-900"
+                />
+                {format(o)}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 const chipOn = "border-slate-900 bg-slate-900 text-white";
 const chipOff = "border-slate-300 bg-white text-slate-600 hover:border-slate-500";
 
 export default function DealsTable({ prospects, roster }: { prospects: ProspectRow[]; roster: string[] }) {
   const [search, setSearch] = useState("");
-  const [owner, setOwner] = useState("all");
-  const [health, setHealth] = useState("all");
-  const [stage, setStage] = useState("all");
+  const [owners, setOwners] = useState<string[]>([]);
+  const [healths, setHealths] = useState<string[]>([]);
+  const [stages, setStages] = useState<string[]>([]);
   const [activity, setActivity] = useState<"all" | "active" | "quiet">("all");
   const [showArchived, setShowArchived] = useState(false);
   const [density, setDensity] = useState<"compact" | "full">("compact");
@@ -223,12 +282,12 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
       if (activity === "active" && now - lastTrackedAt(p) >= WEEK) return false;
       if (activity === "quiet" && now - lastTrackedAt(p) < WEEK) return false;
       if (search.trim() && !p.company_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
-      if (owner !== "all" && p.owner_rep !== owner) return false;
-      if (health !== "all" && p.deal_health !== health) return false;
-      if (stage !== "all" && p.stage !== stage) return false;
+      if (owners.length > 0 && !owners.includes(p.owner_rep ?? "")) return false;
+      if (healths.length > 0 && !healths.includes(p.deal_health)) return false;
+      if (stages.length > 0 && !stages.includes(p.stage)) return false;
       return true;
     });
-  }, [prospects, search, owner, health, stage, activity, showArchived]);
+  }, [prospects, search, owners, healths, stages, activity, showArchived]);
 
   const sorted = useMemo(() => {
     const rows = [...filtered];
@@ -269,18 +328,21 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
 
   const activeFilterChips: { key: string; text: string; clear: () => void }[] = [];
   if (search.trim()) activeFilterChips.push({ key: "search", text: `"${search.trim()}"`, clear: () => setSearch("") });
-  if (owner !== "all") activeFilterChips.push({ key: "owner", text: `Owner: ${owner}`, clear: () => setOwner("all") });
-  if (health !== "all") activeFilterChips.push({ key: "health", text: `Health: ${label(health)}`, clear: () => setHealth("all") });
-  if (stage !== "all") activeFilterChips.push({ key: "stage", text: `Stage: ${label(stage)}`, clear: () => setStage("all") });
+  for (const o of owners)
+    activeFilterChips.push({ key: `owner-${o}`, text: `Owner: ${o}`, clear: () => setOwners(owners.filter((x) => x !== o)) });
+  for (const h of healths)
+    activeFilterChips.push({ key: `health-${h}`, text: `Health: ${label(h)}`, clear: () => setHealths(healths.filter((x) => x !== h)) });
+  for (const s of stages)
+    activeFilterChips.push({ key: `stage-${s}`, text: `Stage: ${label(s)}`, clear: () => setStages(stages.filter((x) => x !== s)) });
   if (activity !== "all")
     activeFilterChips.push({ key: "activity", text: ACTIVITY_CHIP_LABEL[activity], clear: () => setActivity("all") });
   if (showArchived)
     activeFilterChips.push({ key: "archived", text: "Showing archived", clear: () => setShowArchived(false) });
   const clearAll = () => {
     setSearch("");
-    setOwner("all");
-    setHealth("all");
-    setStage("all");
+    setOwners([]);
+    setHealths([]);
+    setStages([]);
     setActivity("all");
     setShowArchived(false);
   };
@@ -329,30 +391,9 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
             placeholder="Search company…"
             className="w-40 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
           />
-          <select value={owner} onChange={(e) => setOwner(e.target.value)} className={selectCls} aria-label="Owner">
-            <option value="all">Owner: All</option>
-            {roster.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          <select value={health} onChange={(e) => setHealth(e.target.value)} className={selectCls} aria-label="Health">
-            <option value="all">Health: All</option>
-            {HEALTH_OPTIONS.map((h) => (
-              <option key={h} value={h}>
-                {label(h)}
-              </option>
-            ))}
-          </select>
-          <select value={stage} onChange={(e) => setStage(e.target.value)} className={selectCls} aria-label="Stage">
-            <option value="all">Stage: All</option>
-            {STAGE_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </select>
+          <MultiSelect name="Owner" options={roster} selected={owners} onChange={setOwners} />
+          <MultiSelect name="Health" options={HEALTH_OPTIONS} selected={healths} onChange={setHealths} format={label} />
+          <MultiSelect name="Stage" options={STAGE_OPTIONS} selected={stages} onChange={setStages} format={label} />
           <select
             value={activity}
             onChange={(e) => setActivity(e.target.value as typeof activity)}
@@ -395,9 +436,11 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
 
         {sorted.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-            {owner !== "all" ? (
+            {owners.length > 0 ? (
               <>
-                <p className="font-medium text-slate-700">No deals assigned to {owner} yet.</p>
+                <p className="font-medium text-slate-700">
+                  No deals assigned to {owners.length === 1 ? owners[0] : "the selected owners"} yet.
+                </p>
                 <p className="mt-1 text-sm text-slate-500">Reassign one from the table — clear the Owner filter, expand a deal, and use Reassign owner.</p>
               </>
             ) : (
