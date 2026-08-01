@@ -22,3 +22,7 @@ Next.js 15 (App Router) · Supabase (persistence) · Groq `llama-3.3-70b-versati
 3. Run `supabase/schema.sql` in the Supabase SQL editor.
 4. Seed demo data: `npx tsx scripts/seed.ts`
 5. `npm run dev`
+
+## Known gaps
+
+- **No authentication** — rep identity is a cookie-based switcher by design (demo), which means all prospect data is world-readable/writable through the public API. Do not put real customer data in this deployment. An SSO layer in front of the API is the intended production path.

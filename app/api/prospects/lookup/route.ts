@@ -30,7 +30,14 @@ export async function GET(req: NextRequest) {
       const domain = normalizeDomain(website);
       if (domain) {
         const { data } = await db.from("prospects").select("*").ilike("website", domain).is("archived_at", null).maybeSingle();
-        prospect = data;
+        // A website match only counts when it doesn't contradict the typed
+        // name — a stale website from a previous submission must never attach
+        // another company's record.
+        if (data && name.length >= 3 && data.company_name.trim().toLowerCase() !== name.toLowerCase()) {
+          prospect = null;
+        } else {
+          prospect = data;
+        }
       }
     }
     if (!prospect) return NextResponse.json({ match: null });

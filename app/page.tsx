@@ -635,20 +635,21 @@ export default function RepView() {
     loadProspects();
   }
 
-  // Debounced existing-prospect check while typing (exact name/domain match only).
+  // Debounced existing-prospect check while typing (exact name/domain match
+  // only). The query is committed as ONE snapshot object per debounce tick so
+  // name and website can never come from different submissions.
   useEffect(() => {
     if (boot !== "app") return;
-    const name = company.trim();
-    const site = website.trim();
-    if (name.length < 3 && !site) {
+    const query = { name: company.trim(), website: website.trim() };
+    if (query.name.length < 3 && !query.website) {
       setLookup(null);
       return;
     }
     const t = setTimeout(async () => {
       try {
         const params = new URLSearchParams();
-        if (name.length >= 3) params.set("name", name);
-        if (site) params.set("website", site);
+        if (query.name.length >= 3) params.set("name", query.name);
+        if (query.website) params.set("website", query.website);
         const res = await fetch(`/api/prospects/lookup?${params}`);
         const data = await res.json();
         setLookup(res.ok ? data.match : null);
@@ -761,6 +762,13 @@ export default function RepView() {
         await generateBrief(meeting, data.prospect.company_name);
       }
       loadProspects();
+      // Reset the entire form so nothing leaks into the next prospect.
+      setCompany("");
+      setWebsite("");
+      setContactName("");
+      setContactRole("");
+      setMeetingType("discovery");
+      setLookup(null);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
       setError((err as Error).message);
