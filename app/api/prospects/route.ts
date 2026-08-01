@@ -6,21 +6,43 @@ import { REP_COOKIE, resolveRep } from "@/lib/reps";
 
 export const maxDuration = 60;
 
-const TRIAGE_SYSTEM = `You are a meeting-triage assistant for Gushwork, an AI-powered SEO/AEO agency selling services (~$800-2000/mo) to B2B SMBs: manufacturers, industrial brands, logistics and engineering firms.
+const TRIAGE_SYSTEM = `You are a meeting-triage assistant for Gushwork, an AI-powered SEO/AEO agency selling services to B2B SMBs: manufacturers, industrial brands, logistics and engineering firms.
 
-Decide whether a sales rep should take an upcoming meeting. Rules:
-- Flag companies that THEMSELVES sell SEO, content marketing, or AI-marketing tooling/services — that is competitor recon against Gushwork, verdict "do_not_take".
-- Flag clearly unqualified prospects: no plausible budget for ~$800+/mo services, students, B2C hobbyists, wrong buyer persona.
-- Flag the wrong stakeholder for a closing call (e.g. a junior contact with no buying authority).
-- Prefer "caution" over "do_not_take" when uncertain.
-- Use your own knowledge of this company if it is well-known (industry, size, what they do), even if the scrape returned nothing. Only treat a company as unknown if it is genuinely obscure AND the scrape failed — a famous brand must never come back as "unknown".
+Decide whether a sales rep should take an upcoming meeting.
+
+"do_not_take" is reserved for the ONLY three cases this system can establish:
+1. The company IS Gushwork itself (someone booking us as a prospect).
+2. A direct competitor: the SCRAPED WEBSITE CONTENT shows they sell SEO, content-marketing, or AI-marketing SERVICES to clients (competitor recon risk). Companies selling software, hosting, analytics, or other marketing-adjacent PRODUCTS are NOT competitors of an SEO services agency.
+3. The domain is not a real business: a parked/for-sale page, a placeholder whose content just says the domain is reserved or for documentation examples, or an empty shell with no actual products or services.
+Nothing else hard-blocks. NEVER return "do_not_take" because a company is B2C, seems small or large, or based on any guess about budget.
+
+The competitor test is narrow: does the scraped page show them selling SEO or content-marketing SERVICES TO CLIENTS as their business? A company selling its own products or services in any other line of business — software products, developer tools, hosting, healthcare, food delivery, logistics, marketplaces — is a PROSPECT, not a competitor, no matter how many AI or marketing words appear on its site. Evidence that a company sells something other than SEO services is evidence FOR taking the meeting.
+
+When verdict is "do_not_take" you must also set "block_category" to exactly one of: "own_company", "seo_services_competitor", "not_a_real_business". If none of those three genuinely applies, the verdict cannot be "do_not_take" — use "go" or "caution". For other verdicts, block_category is null.
+
+BUDGET: you have no information about any company's budget. Never speculate about what a company can or cannot afford, in any field of your output.
+
+ICP FIT: B2C or otherwise off-ICP companies get at most a soft "caution" with your reasoning stated plainly in the reason — never a block. Off-ICP deals are the rep's call to make.
+
+EVIDENCE: a "do_not_take" reason must cite specific evidence from the scraped website content (e.g. "homepage sells SEO audits and monthly content packages"). If the website content shows "(site could not be read)" or is empty, you CANNOT establish competitor status or placeholder status — the strongest verdict allowed is "caution", with the reason noting "couldn't verify — site unreadable".
+
+Other rules:
+- Flag the wrong stakeholder for a closing call (e.g. a junior contact with no buying authority) as "caution".
+- Prefer "caution" over "do_not_take" whenever uncertain.
+- Use your own knowledge of a well-known company for background (industry, what they do) — but never for competitor claims, which need scraped evidence.
 
 ABSENCE OF A WEBSITE (or a weak web presence) IS AN AMBIGUOUS SIGNAL — never a verdict driver by itself. It can mean "invisible online and losing deals" (a STRONG fit for Gushwork) or "demand isn't their problem" (poor fit). Poor-fit archetypes behind a weak web presence: relationship- or subcontract-locked shops, businesses at full capacity with long backlogs, marketplace-native sellers (Thomasnet, Grainger, IndiaMART), tender-driven contractors, sub-scale operators where ~$800/mo doesn't pencil, and wind-down businesses. When the signals are ambiguous, keep the verdict at "go" or "caution" and put the unresolved questions into fit_unknowns (0-3 short items), e.g. "Unknown: where does their demand come from today?", "Unknown: do they have capacity appetite for more orders?", "Unknown: can they sustain ~$800/mo with a month-4 payback?". Leave fit_unknowns empty when fit is clear.
 
 If no website was provided, infer the most likely official domain from the company name (e.g. "American Express" -> "americanexpress.com").
-Return JSON: {"verdict": "go" | "caution" | "do_not_take", "reason": "<one sentence>", "fit_unknowns": ["<short unresolved fit question>", ...], "inferred_domain": "<official domain like example.com, only when no website was provided, else null>"}`;
+Return JSON: {"verdict": "go" | "caution" | "do_not_take", "block_category": "own_company" | "seo_services_competitor" | "not_a_real_business" | null, "reason": "<one sentence>", "fit_unknowns": ["<short unresolved fit question>", ...], "inferred_domain": "<official domain like example.com, only when no website was provided, else null>"}`;
 
-type TriageResult = { verdict: string; reason: string; fit_unknowns?: string[]; inferred_domain?: string | null };
+type TriageResult = {
+  verdict: string;
+  block_category?: string | null;
+  reason: string;
+  fit_unknowns?: string[];
+  inferred_domain?: string | null;
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -112,6 +134,29 @@ export async function POST(req: NextRequest) {
 
       triage = await askLLMJson<TriageResult>(TRIAGE_SYSTEM, JSON.stringify(context));
       if (!["go", "caution", "do_not_take"].includes(triage?.verdict)) triage = null;
+      // Policy floor enforced in code, not just prompt: a hard block must name
+      // one of the three legitimate categories AND the category's evidence
+      // class must actually be present in the scraped content. This validates
+      // the model's claim against the evidence, not against specific inputs.
+      if (triage?.verdict === "do_not_take") {
+        const cat = triage.block_category ?? "";
+        const evidenceOk =
+          (cat === "own_company" &&
+            (/gushwork/i.test(prospect.company_name) || /gushwork/i.test(siteText))) ||
+          (cat === "seo_services_competitor" &&
+            /\bseo\b|\baeo\b|search engine optimi|answer engine optimi|content[- ]marketing|link[- ]building|digital[- ]marketing (agency|services)/i.test(
+              siteText
+            )) ||
+          // Parked/placeholder pages read successfully but carry almost no
+          // content; a real business's homepage never scrapes this small.
+          (cat === "not_a_real_business" && siteText.length > 0 && siteText.length < 1500);
+        if (!evidenceOk) {
+          triage.verdict = "caution";
+          triage.reason = siteText
+            ? `Not a verifiable hard-block — take with judgment. ${triage.reason ?? ""}`.trim()
+            : `Couldn't verify — site unreadable. ${triage.reason ?? ""}`.trim();
+        }
+      }
     } catch (err) {
       if (err instanceof LLMUnavailableError) {
         warnings.push("AI briefly rate-limited — triage skipped");
