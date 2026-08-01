@@ -14,6 +14,7 @@ export type Extracted = {
   competitors?: Competitor[];
   process_facts?: string[];
   relationship_notes?: string[];
+  blockers?: string[];
   fit?: Record<string, string>;
   fit_reason?: string | null;
   resolved_fit_unknowns?: string[];
@@ -33,6 +34,8 @@ export type Memory = {
   competitors?: Competitor[];
   process_facts?: string[];
   relationship_notes?: string[];
+  blockers?: string[];
+  health_reason?: string | null;
   fit?: Record<string, string>;
   fit_reason?: string | null;
   fit_unknowns?: string[];
@@ -134,6 +137,7 @@ export function mergeMemory(existing: Partial<Memory> | null, extracted: Extract
     ...(existing?.relationship_notes ?? []),
     ...(extracted.relationship_notes ?? []),
   ]);
+  mem.blockers = dedupeStrings([...(existing?.blockers ?? []), ...(extracted.blockers ?? [])]);
 
   // Fit resolutions: answered questions overwrite, resolved unknowns drop off.
   mem.fit = existing?.fit ?? {};

@@ -585,6 +585,7 @@ export default function RepView() {
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesResult, setNotesResult] = useState<{ summary: string; signal?: string; aiDown?: boolean } | null>(null);
+  const [stagePrompt, setStagePrompt] = useState<{ prospectId: string; suggested: string; current: string } | null>(null);
 
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [listLoaded, setListLoaded] = useState(false);
@@ -670,6 +671,7 @@ export default function RepView() {
     setActiveMeetingId(null);
     setNotes("");
     setNotesResult(null);
+    setStagePrompt(null);
     setOwnerNotice(null);
     setInferredSite(null);
     setWarnings([]);
@@ -726,6 +728,7 @@ export default function RepView() {
     setBrief(null);
     setNotes("");
     setNotesResult(null);
+    setStagePrompt(null);
     setBlockedMeeting(null);
     setCurrentMeeting(null);
     setInferredSite(null);
@@ -799,6 +802,12 @@ export default function RepView() {
         });
       } else {
         setNotesResult({ summary: data.extracted?.summary ?? "Notes processed.", signal: data.extracted?.deal_signal });
+        const suggested = data.extracted?.stage_suggestion;
+        if (suggested && data.prospect && suggested !== data.prospect.stage) {
+          setStagePrompt({ prospectId: data.prospect.id, suggested, current: data.prospect.stage });
+        } else {
+          setStagePrompt(null);
+        }
       }
       loadProspects();
     } catch (err) {
@@ -1023,6 +1032,37 @@ export default function RepView() {
                   )}
                 </div>
                 <p className={`mt-1 text-sm ${notesResult.aiDown ? "text-amber-800" : "text-emerald-900"}`}>{notesResult.summary}</p>
+              </div>
+            )}
+            {stagePrompt && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-sm font-medium text-blue-900">
+                  Move to <span className="capitalize">{stagePrompt.suggested.replace("_", " ")}</span>?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/prospects/${stagePrompt.prospectId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ stage: stagePrompt.suggested }),
+                      });
+                      if (res.ok) {
+                        setStagePrompt(null);
+                        loadProspects();
+                      }
+                    }}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                  >
+                    Move
+                  </button>
+                  <button
+                    onClick={() => setStagePrompt(null)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-500"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             )}
           </section>

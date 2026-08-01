@@ -62,6 +62,10 @@ function latestSignalReason(p: ProspectRow): string {
   if (p.stage === "disqualified" && p.memory?.fit_reason) {
     return `Disqualified: ${p.memory.fit_reason}`;
   }
+  // Code-derived health downgrade reason: shows WHY a deal isn't advancing.
+  if (p.memory?.health_reason && (p.deal_health === "stalling" || p.deal_health === "at_risk")) {
+    return p.memory.health_reason;
+  }
   const doneWithExtract = p.meetings.filter((m) => m.extracted?.summary);
   if (doneWithExtract.length > 0) return doneWithExtract[0].extracted!.summary!;
   const flagged = p.meetings.find((m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution");

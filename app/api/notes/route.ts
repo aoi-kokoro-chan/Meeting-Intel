@@ -23,6 +23,7 @@ Return JSON with exactly these keys:
   "addressed_objections": ["<EXACT text of a prior objection (from prior_objections in context) these notes show was addressed/answered>", ...],
   "verbatim_phrases": ["<short quote in the prospect's own words for their problems or processes>", ...],
   "competitors": [{"name": "<competitor or alternative vendor mentioned>", "context": "<how they came up>"}, ...],
+  "blockers": ["<a hard blocker preventing the deal from progressing, e.g. 'their dev team is slammed till October'>", ...],
   "process_facts": ["<procurement/legal/security-review/timeline fact, e.g. 'legal review takes 6 weeks'>", ...],
   "relationship_notes": ["<channel or contact preference, e.g. 'prefers WhatsApp, no email on Fridays'>", ...],
   "fit": {"demand_source": "...", "capacity_appetite": "...", "economics": "...", "growth_intent": "..."},
@@ -34,7 +35,7 @@ Return JSON with exactly these keys:
   "stage_suggestion": "discovery" | "demo" | "closing" | "closed_won" | "closed_lost" | "disqualified" | null
 }
 
-deal_signal: "advancing" if there's momentum (next meeting booked, buying signals), "stalling" if vague/postponed ("after Diwali", no owner), "at_risk" if serious blockers or competitor threat.
+deal_signal: "advancing" if there's momentum (next meeting booked, buying signals), "stalling" if vague/postponed ("after Diwali", no owner), "at_risk" if serious blockers or competitor threat. Sentiment and deal_signal are DIFFERENT axes: sentiment is how the call felt, deal_signal is whether the deal is progressing — a warm, friendly call with a hard blocker is sentiment "positive" + deal_signal "stalling".
 stage_suggestion: only suggest a LATER stage than the current one if the notes clearly indicate it (e.g. demo scheduled -> "demo", contract/pricing sign-off discussion -> "closing"); otherwise null.
 resolved_commitments / addressed_objections: copy the prior item's text EXACTLY as given in context so it can be matched; empty arrays if nothing was resolved.
 verbatim_phrases: 3-6 short quotes max, only genuinely distinctive phrasing in the prospect's own words (e.g. "leadership will review after Diwali"); empty array if the notes contain none.
@@ -304,7 +305,25 @@ export async function POST(req: NextRequest) {
     }
 
     const memory = mergeMemory(prospect.memory, extracted);
-    const health = healthFromSignal(extracted.deal_signal) ?? prospect.deal_health;
+
+    // Deal-health post-check in code, not just prompt wording: an unresolved
+    // blocker, an active competitor, or no next step means "advancing" cannot
+    // stand. The downgrade reason is stored so the dashboard shows WHY.
+    let health = healthFromSignal(extracted.deal_signal) ?? prospect.deal_health;
+    let healthReason: string | null = null;
+    if (health === "advancing") {
+      if ((extracted.blockers ?? []).length > 0) {
+        health = "stalling";
+        healthReason = `Unresolved blocker: ${extracted.blockers![0]}`;
+      } else if (!extracted.next_step?.trim()) {
+        health = "stalling";
+        healthReason = "No next step agreed on the last call";
+      } else if ((memory.competitors ?? []).length > 0) {
+        health = "stalling";
+        healthReason = `Active competitor in the deal: ${memory.competitors!.map((c) => c.name).join(", ")}`;
+      }
+    }
+    memory.health_reason = healthReason;
 
     // Stage is NEVER auto-written from extraction output — a single hijackable
     // field must not move the pipeline. stage_suggestion is stored on the
