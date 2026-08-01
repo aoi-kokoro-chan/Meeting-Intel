@@ -97,8 +97,6 @@ const isFlaggedOnly = (p: ProspectRow) =>
   !p.meetings.some((m) => m.status === "done") && p.meetings[0]?.triage_verdict === "do_not_take";
 const isActiveDeal = (p: ProspectRow) =>
   !["disqualified", "closed_lost"].includes(p.stage) && !isFlaggedOnly(p);
-const isFlagged = (p: ProspectRow) =>
-  p.meetings.some((m) => m.triage_verdict === "do_not_take" || m.triage_verdict === "caution");
 const isDeletable = (p: ProspectRow) =>
   !p.meetings.some((m) => m.status === "done" || (m.raw_notes ?? "").trim() !== "");
 
@@ -185,12 +183,10 @@ const ACTIVITY_OPTIONS: { value: string; label: string }[] = [
   { value: "all", label: "Activity: All" },
   { value: "active", label: "Active (last 7 days)" },
   { value: "quiet", label: "No activity 7+ days" },
-  { value: "archived", label: "Archived" },
 ];
 const ACTIVITY_CHIP_LABEL: Record<string, string> = {
   active: "Active (last 7 days)",
   quiet: "No activity 7+ days",
-  archived: "Archived",
 };
 
 const selectCls =
@@ -203,8 +199,8 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   const [owner, setOwner] = useState("all");
   const [health, setHealth] = useState("all");
   const [stage, setStage] = useState("all");
-  const [activity, setActivity] = useState<"all" | "active" | "quiet" | "archived">("all");
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [activity, setActivity] = useState<"all" | "active" | "quiet">("all");
+  const [showArchived, setShowArchived] = useState(false);
   const [density, setDensity] = useState<"compact" | "full">("compact");
   const [sort, setSort] = useState<{ key: "activity" | "health"; dir: "asc" | "desc" }>({ key: "activity", dir: "desc" });
 
@@ -223,22 +219,16 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
     const now = Date.now();
     const WEEK = 7 * 86400000;
     return prospects.filter((p) => {
-      // Archived scope: only the Archived value shows archived rows.
-      if (activity === "archived") {
-        if (!p.archived_at) return false;
-      } else {
-        if (p.archived_at) return false;
-        if (activity === "active" && now - lastTrackedAt(p) >= WEEK) return false;
-        if (activity === "quiet" && now - lastTrackedAt(p) < WEEK) return false;
-      }
+      if (!showArchived && p.archived_at) return false;
+      if (activity === "active" && now - lastTrackedAt(p) >= WEEK) return false;
+      if (activity === "quiet" && now - lastTrackedAt(p) < WEEK) return false;
       if (search.trim() && !p.company_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
       if (owner !== "all" && p.owner_rep !== owner) return false;
       if (health !== "all" && p.deal_health !== health) return false;
       if (stage !== "all" && p.stage !== stage) return false;
-      if (flaggedOnly && !isFlagged(p)) return false;
       return true;
     });
-  }, [prospects, search, owner, health, stage, activity, flaggedOnly]);
+  }, [prospects, search, owner, health, stage, activity, showArchived]);
 
   const sorted = useMemo(() => {
     const rows = [...filtered];
@@ -257,7 +247,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
     return rows;
   }, [filtered, sort]);
 
-  const scopeTotal = prospects.filter((p) => (activity === "archived" ? p.archived_at : !p.archived_at)).length;
+  const scopeTotal = prospects.filter((p) => showArchived || !p.archived_at).length;
 
   // Stat cards respect the active filters.
   const stats = [
@@ -284,14 +274,15 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   if (stage !== "all") activeFilterChips.push({ key: "stage", text: `Stage: ${label(stage)}`, clear: () => setStage("all") });
   if (activity !== "all")
     activeFilterChips.push({ key: "activity", text: ACTIVITY_CHIP_LABEL[activity], clear: () => setActivity("all") });
-  if (flaggedOnly) activeFilterChips.push({ key: "flagged", text: "Flagged by triage", clear: () => setFlaggedOnly(false) });
+  if (showArchived)
+    activeFilterChips.push({ key: "archived", text: "Showing archived", clear: () => setShowArchived(false) });
   const clearAll = () => {
     setSearch("");
     setOwner("all");
     setHealth("all");
     setStage("all");
     setActivity("all");
-    setFlaggedOnly(false);
+    setShowArchived(false);
   };
 
   const sortArrow = (key: "activity" | "health") =>
@@ -374,12 +365,15 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
               </option>
             ))}
           </select>
-          <button
-            onClick={() => setFlaggedOnly(!flaggedOnly)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium ${flaggedOnly ? chipOn : chipOff}`}
-          >
-            Flagged by triage
-          </button>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="accent-slate-900"
+            />
+            Show archived
+          </label>
         </div>
 
         {activeFilterChips.length > 0 && (
