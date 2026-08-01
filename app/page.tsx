@@ -1032,6 +1032,9 @@ export default function RepView() {
           >
             {loading ? loadingMsg : "Prep my brief"}
           </button>
+          <p className="mt-1 text-center text-xs text-slate-400">
+            Briefs assume the call is happening now — prep is timestamped when you hit the button.
+          </p>
         </div>
       </form>
 
