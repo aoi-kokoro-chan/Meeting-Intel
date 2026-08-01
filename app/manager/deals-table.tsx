@@ -260,18 +260,18 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   const [stages, setStages] = useState<string[]>([]);
   const [activity, setActivity] = useState<"all" | "active" | "quiet">("all");
   const [showArchived, setShowArchived] = useState(false);
-  const [density, setDensity] = useState<"compact" | "full">("compact");
+  const [showAllRows, setShowAllRows] = useState(false);
   const [sort, setSort] = useState<{ key: "activity" | "health"; dir: "asc" | "desc" }>({ key: "activity", dir: "desc" });
 
-  // Density persists for the tab session; compact on every fresh load.
+  // Row expansion persists for the tab session; collapsed on every fresh load.
+  const ROW_LIMIT = 5;
   useEffect(() => {
-    const saved = sessionStorage.getItem("managerTableDensity");
-    if (saved === "full") setDensity("full");
+    if (sessionStorage.getItem("managerTableShowAllRows") === "1") setShowAllRows(true);
   }, []);
-  function toggleDensity() {
-    const next = density === "compact" ? "full" : "compact";
-    setDensity(next);
-    sessionStorage.setItem("managerTableDensity", next);
+  function toggleRows() {
+    const next = !showAllRows;
+    setShowAllRows(next);
+    sessionStorage.setItem("managerTableShowAllRows", next ? "1" : "0");
   }
 
   const filtered = useMemo(() => {
@@ -355,10 +355,8 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
     );
   }
 
-  const full = density === "full";
-  const gridCols = full
-    ? "md:grid-cols-[1.6fr_0.8fr_0.8fr_0.5fr_0.8fr_1.2fr_1.4fr_0.7fr]"
-    : "md:grid-cols-[2fr_0.9fr_0.9fr_1.8fr]";
+  const visibleRows = showAllRows ? sorted : sorted.slice(0, ROW_LIMIT);
+  const gridCols = "md:grid-cols-[1.6fr_0.8fr_0.8fr_0.5fr_0.8fr_1.2fr_1.4fr_0.7fr]";
   const clamp1 =
     "overflow-hidden [-webkit-box-orient:vertical] [-webkit-line-clamp:1] [display:-webkit-box] hover:[-webkit-line-clamp:unset]";
 
@@ -376,11 +374,8 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Deals <span className="font-normal normal-case text-slate-400">({sorted.length} shown of {scopeTotal})</span>
+            Deals <span className="font-normal normal-case text-slate-400">({sorted.length} of {scopeTotal})</span>
           </h2>
-          <button onClick={toggleDensity} className="text-xs font-medium text-blue-600 hover:underline">
-            {full ? "⊟ Compact table" : "⊞ Expand table"}
-          </button>
         </div>
 
         {/* Filter bar */}
@@ -459,16 +454,16 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
               <button onClick={() => clickSort("health")} className="text-left uppercase tracking-wide hover:text-slate-800">
                 Health{sortArrow("health")}
               </button>
-              {full && <span>Stage</span>}
-              {full && <span>Calls</span>}
+              <span>Stage</span>
+              <span>Calls</span>
               <button onClick={() => clickSort("activity")} className="text-left uppercase tracking-wide hover:text-slate-800">
                 Last activity{sortArrow("activity")}
               </button>
               <span>Next step</span>
-              {full && <span>Latest signal</span>}
-              {full && <span>Actions</span>}
+              <span>Latest signal</span>
+              <span>Actions</span>
             </div>
-            {sorted.map((p) => (
+            {visibleRows.map((p) => (
               <details key={p.id} className={`group border-b border-slate-100 last:border-b-0 ${p.archived_at ? "opacity-60" : ""}`}>
                 <summary
                   className={`grid cursor-pointer grid-cols-2 gap-3 px-5 py-4 hover:bg-slate-50 md:items-center [&::-webkit-details-marker]:hidden ${gridCols}`}
@@ -492,8 +487,8 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                       {label(p.deal_health)}
                     </span>
                   </span>
-                  {full && <span className="hidden text-sm capitalize text-slate-600 md:block">{label(p.stage)}</span>}
-                  {full && <span className="hidden text-sm text-slate-600 md:block">{p.meetings.length}</span>}
+                  <span className="hidden text-sm capitalize text-slate-600 md:block">{label(p.stage)}</span>
+                  <span className="hidden text-sm text-slate-600 md:block">{p.meetings.length}</span>
                   <span className="flex items-center gap-1.5 text-sm text-slate-600">
                     <span
                       className={`inline-block h-2 w-2 shrink-0 rounded-full ${
@@ -506,17 +501,13 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                   <span className={`text-sm text-slate-600 ${clamp1}`} title={p.memory?.next_step ?? undefined}>
                     {p.memory?.next_step ?? <span className="text-slate-400">— none captured</span>}
                   </span>
-                  {full && (
-                    <span className={`hidden text-sm text-slate-500 md:[display:-webkit-box] ${clamp1}`} title={latestSignalReason(p)}>
-                      {latestSignalReason(p)}
-                    </span>
-                  )}
-                  {full && (
-                    <span className="hidden items-center gap-2 md:flex" onClick={(e) => e.preventDefault()}>
-                      {isDeletable(p) && <DeleteButton prospectId={p.id} company={p.company_name} />}
-                      {p.archived_at ? <RestoreButton prospectId={p.id} /> : <ArchiveButton prospectId={p.id} />}
-                    </span>
-                  )}
+                  <span className={`hidden text-sm text-slate-500 md:[display:-webkit-box] ${clamp1}`} title={latestSignalReason(p)}>
+                    {latestSignalReason(p)}
+                  </span>
+                  <span className="hidden items-center gap-2 md:flex" onClick={(e) => e.preventDefault()}>
+                    {isDeletable(p) && <DeleteButton prospectId={p.id} company={p.company_name} />}
+                    {p.archived_at ? <RestoreButton prospectId={p.id} /> : <ArchiveButton prospectId={p.id} />}
+                  </span>
                 </summary>
                 <div className="bg-slate-50 px-5 py-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -566,6 +557,13 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                 </div>
               </details>
             ))}
+          </div>
+        )}
+        {sorted.length > ROW_LIMIT && (
+          <div className="mt-3 text-center">
+            <button onClick={toggleRows} className="text-xs font-medium text-blue-600 hover:underline">
+              {showAllRows ? "Show fewer ▴" : `Show all ${sorted.length} deals ▾`}
+            </button>
           </div>
         )}
       </section>
