@@ -32,6 +32,8 @@ MIRROR THEIR LANGUAGE: verbatim_phrases in the context are the prospect's own wo
 
 GROUNDED RECAP: last_meeting_recap must ONLY restate facts present in the most recent past meeting's notes/extracted/summary from the context — no inference, no additions, nothing from other meetings.
 
+HANDOFF: if ownership_log in the context shows this deal was reassigned to the current rep, acknowledge the handoff — the current rep may be meeting this prospect for the FIRST time even though the deal has history, so per-rep attribution of prior intel matters even more, and the talk track should avoid implying personal familiarity the rep doesn't have.
+
 WHO ELSE IS IN THE DEAL: if memory lists competitors, they must be visible — mention them in what_we_know and factor them into likely_objections and watch_out. process_facts (procurement/legal/security timelines) and relationship_notes (channel/contact preferences) must shape talk_track, questions_to_ask, and open_threads — e.g. a 6-week legal review changes the close plan, a "WhatsApp only" preference changes the follow-up.
 
 RESOLVE FIT FIRST: fit_unknowns in the context are unresolved questions about whether this prospect is even a fit. On a DISCOVERY call they OUTRANK generic discovery questions: turn each one into a natural, conversational question and put them FIRST in questions_to_ask, each prefixed with "Resolve fit first: " — e.g. "Unknown: where does their demand come from today?" becomes "Resolve fit first: How do new customers typically find you today?"; capacity appetite becomes "Resolve fit first: If 10 qualified enquiries landed next month, could you take them on?"; economics becomes "Resolve fit first: Roughly what does a new customer end up being worth to you?". Generic questions come after. If fit_unknowns is empty, no prefixed questions.
@@ -176,6 +178,8 @@ export async function POST(req: NextRequest) {
       verbatim_phrases: memory.verbatim_phrases ?? [],
       fit_unknowns: memory.fit_unknowns ?? [],
       known_fit: memory.fit ?? {},
+      current_rep: resolveRep(req.cookies.get(REP_COOKIE)?.value),
+      ownership_log: memory.ownership_log ?? [],
       past_meetings: (pastMeetings ?? []).map((m, i) => ({
         n: i + 1,
         type: m.meeting_type,
@@ -280,6 +284,16 @@ export async function POST(req: NextRequest) {
       ),
     ];
     if (otherReps.length > 0) brief.intel_from = otherReps;
+
+    // Handoff acknowledgment is deterministic: if this deal was reassigned to
+    // the current rep, say so up front — they may be meeting the prospect for
+    // the first time even though the deal has history.
+    const lastTransfer = (memory.ownership_log ?? [])[(memory.ownership_log ?? []).length - 1];
+    if (lastTransfer && lastTransfer.to === currentRep && lastTransfer.from && lastTransfer.from !== currentRep) {
+      brief.what_we_know.unshift(
+        `Handoff: this account was reassigned to you from ${lastTransfer.from} (${fmtDay(lastTransfer.at)}) — the prior calls below were ${lastTransfer.from}'s.`
+      );
+    }
 
     // Single-threading alarm — code-derived, not LLM.
     const doneMeetings = (pastMeetings ?? []).filter((m) => m.status === "done");

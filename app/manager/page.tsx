@@ -5,6 +5,8 @@ import { deriveRoster, repColor, repInitial } from "@/lib/reps";
 import { sweepProvisional } from "@/lib/archive";
 import ViewSegment from "../view-segment";
 import ArchiveButton from "../archive-button";
+import DeleteButton from "../delete-button";
+import ReassignOwner from "../reassign-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ type MeetingRow = {
   id: string;
   meeting_type: string;
   rep_name: string | null;
+  raw_notes: string | null;
   scheduled_at: string | null;
   status: string;
   triage_verdict: string | null;
@@ -88,19 +91,19 @@ function RepBadge({ name, size = "h-6 w-6 text-[11px]" }: { name: string | null;
 export default async function ManagerView({
   searchParams,
 }: {
-  searchParams: Promise<{ rep?: string }>;
+  searchParams: Promise<{ rep?: string; archived?: string }>;
 }) {
-  const { rep: repParam } = await searchParams;
+  const { rep: repParam, archived: archivedParam } = await searchParams;
+  const showArchived = archivedParam === "1";
   let prospects: ProspectRow[] = [];
   let loadError: string | null = null;
   try {
     const db = supabaseAdmin();
     await sweepProvisional(db);
-    const { data, error } = await db
-      .from("prospects")
-      .select("*, meetings(*)")
-      .is("archived_at", null)
-      .order("updated_at", { ascending: false });
+    let query = db.from("prospects").select("*, meetings(*)").order("updated_at", { ascending: false });
+    // Read-only archived surface: archive mechanics themselves are unchanged.
+    query = showArchived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
+    const { data, error } = await query;
     if (error) loadError = error.message;
     prospects = (data ?? []) as ProspectRow[];
     for (const p of prospects) {
@@ -269,21 +272,29 @@ export default async function ManagerView({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className={`text-3xl font-bold ${s.cls}`}>{s.value}</p>
-            <p className="mt-1 text-sm text-slate-500">{s.label}</p>
-          </div>
-        ))}
-      </div>
+      {!showArchived && (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className={`text-3xl font-bold ${s.cls}`}>{s.value}</p>
+              <p className="mt-1 text-sm text-slate-500">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Deals — at-risk first
+            {showArchived ? "Archived prospects" : "Deals — at-risk first"}
           </h2>
-          <div className="flex gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={showArchived ? "/manager" : "/manager?archived=1"}
+              className="mr-2 text-xs font-medium text-blue-600 hover:underline"
+            >
+              {showArchived ? "← Back to active" : "Archived →"}
+            </Link>
             <Link
               href="/manager"
               className={`rounded-full border px-3 py-1 text-xs font-medium ${
@@ -370,10 +381,22 @@ export default async function ManagerView({
                   </span>
                 </summary>
                 <div className="bg-slate-50 px-5 py-4">
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Meeting timeline</p>
-                    <ArchiveButton prospectId={p.id} />
+                    <span className="flex items-center gap-3">
+                      <ReassignOwner prospectId={p.id} current={p.owner_rep} roster={roster} />
+                      {!p.meetings.some((m) => m.status === "done" || (m.raw_notes ?? "").trim() !== "") && (
+                        <DeleteButton prospectId={p.id} company={p.company_name} />
+                      )}
+                      {!showArchived && <ArchiveButton prospectId={p.id} />}
+                    </span>
                   </div>
+                  {(p.memory?.ownership_log?.length ?? 0) > 0 &&
+                    p.memory!.ownership_log!.map((t, i) => (
+                      <p key={i} className="mb-2 text-xs italic text-slate-500">
+                        Reassigned from {t.from ?? "unassigned"} to {t.to} · {fmtDate(t.at)}
+                      </p>
+                    ))}
                   <div className="space-y-2">
                     {p.meetings.length === 0 && <p className="text-sm text-slate-500">No meetings recorded.</p>}
                     {[...p.meetings].reverse().map((m) => (

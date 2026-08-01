@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import ViewSegment from "./view-segment";
 import ArchiveButton from "./archive-button";
+import DeleteButton from "./delete-button";
 import { DEFAULT_REP, REP_COOKIE, PERSONA_COOKIE, repColor, repInitial } from "@/lib/reps";
 
 function getCookie(name: string): string | null {
@@ -1132,7 +1133,10 @@ export default function RepView() {
                 </button>
                 {expanded === p.id && (
                   <div className="border-t border-slate-100 px-4 pb-4">
-                    <div className="mt-2 flex justify-end">
+                    <div className="mt-2 flex justify-end gap-3">
+                      {!p.meetings.some((m) => m.status === "done" || (m.raw_notes ?? "").trim() !== "") && (
+                        <DeleteButton prospectId={p.id} company={p.company_name} onDone={loadProspects} />
+                      )}
                       <ArchiveButton prospectId={p.id} onDone={loadProspects} />
                     </div>
                     {p.meetings.map((m) => (

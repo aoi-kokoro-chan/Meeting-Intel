@@ -432,6 +432,198 @@ export async function runSeed(db: SupabaseClient): Promise<{ prospects: number; 
   ]);
   if (e3m) throw new Error(`scalenut meetings: ${e3m.message}`);
 
+  // ─── 4. Ador Welding — closed_won, archived: the complete healthy loop ────
+  console.log("Seeding Ador Welding…");
+  const ADOR_OBJECTION = "Tried a content agency in 2023 — generic output, skeptical any agency understands welding";
+  const ADOR_COMMITMENT = "Share pilot scope document with keyword clusters, deliverables and $/₹ pricing";
+  const adorMemory = {
+    pains: [
+      "Distributors find them easily, but end customers searching \"welding automation suppliers\" never do",
+      "Product pages rank for brand terms only — zero visibility on category and application keywords",
+    ],
+    stakeholders: [
+      { name: "Sameer Kulkarni", role: "Head of Marketing", notes: "Champion. Owns budget, pushed the pilot internally." },
+      { name: "Deepa Iyer", role: "Procurement Lead", notes: "Ran vendor onboarding — completed before the closing call." },
+    ],
+    objections: [],
+    commitments: [],
+    resolutions: [ADOR_OBJECTION, `Rep: ${ADOR_COMMITMENT}`],
+    resolution_log: [
+      { text: `${ADOR_OBJECTION} — addressed at demo with welding-specific technical samples`, date: daysAgo(24) },
+      { text: `Rep: ${ADOR_COMMITMENT} — delivered before closing`, date: daysAgo(14) },
+    ],
+    verbatim_phrases: [
+      "distributors find us, end customers don't",
+      "we sell automation but rank for nothing automated",
+      "burn me once with generic content, never again",
+    ],
+    next_step: "Kickoff — onboarding call with Sameer's marketing team",
+    last_sentiment: "positive",
+    facts: [
+      "Mumbai-based welding equipment & consumables manufacturer",
+      "Verbal go-ahead at $1,000/mo; procurement completed before closing call",
+    ],
+  };
+
+  const { data: ador, error: e4 } = await db
+    .from("prospects")
+    .insert({
+      company_name: "Ador Welding",
+      website: "adorwelding.com",
+      owner_rep: "Sales Rep B",
+      contact_name: "Sameer Kulkarni",
+      contact_role: "Head of Marketing",
+      stage: "closed_won",
+      deal_health: "advancing",
+      memory: adorMemory,
+      created_at: daysAgo(35),
+      updated_at: daysAgo(5),
+      archived_at: daysAgo(5),
+    })
+    .select()
+    .single();
+  if (e4 || !ador) throw new Error(`ador: ${e4?.message}`);
+
+  const { error: e4m } = await db.from("meetings").insert([
+    {
+      prospect_id: ador.id,
+      rep_name: "Sales Rep B",
+      meeting_type: "discovery",
+      scheduled_at: daysAgo(35),
+      status: "done",
+      triage_verdict: "go",
+      triage_reason: "Mumbai welding equipment manufacturer — squarely in ICP with a clear category-visibility gap.",
+      brief: {
+        headline: "First call with Ador — a welding leader invisible to the buyers who search",
+        company_snapshot:
+          "Ador Welding is a Mumbai-based manufacturer of welding equipment and consumables with a strong distributor network and decades of brand equity.",
+        what_we_know: ["Established welding equipment & consumables brand", "Distribution-led sales; digital presence is brand-only"],
+        last_meeting_recap: "",
+        open_threads: [],
+        likely_objections: ["'Our distributors bring the business — why invest in search?'"],
+        talk_track: [
+          "End customers research automation suppliers online before asking distributors",
+          "Category keywords are winnable — competitors' content is thin",
+          "Quantify what a ranked application page is worth",
+        ],
+        questions_to_ask: [
+          "When a fabricator searches for welding automation, where do you show up?",
+          "Who owns digital marketing budget?",
+          "What have you tried before for content or SEO?",
+        ],
+        watch_out: "Don't let distributor strength mask the end-customer visibility gap.",
+      },
+      raw_notes:
+        "Solid first call w Sameer (Head of Mktg). Distributors find them fine but end customers searching welding automation suppliers never see them — his words: 'distributors find us, end customers don't'. Big sore point: tried a content agency in 2023, output was generic, engineers rejected everything — skeptical any agency gets welding. Budget exists w him. Wants a demo w technical samples.",
+      extracted: {
+        summary:
+          "Discovery with Sameer Kulkarni (Head of Marketing): strong distributor sales but zero end-customer search visibility; burned by a generic content agency in 2023. Demo agreed with technical samples.",
+        pains: [
+          "Distributors find them easily, but end customers searching \"welding automation suppliers\" never do",
+          "Product pages rank for brand terms only",
+        ],
+        stakeholders: [{ name: "Sameer Kulkarni", role: "Head of Marketing", notes: "Champion, owns budget" }],
+        objections: [ADOR_OBJECTION],
+        commitments: [{ who: "Rep", what: "Demo with welding-specific technical content samples", when: "next week" }],
+        verbatim_phrases: ["distributors find us, end customers don't"],
+        next_step: "Demo next week with technical samples",
+        sentiment: "positive",
+        deal_signal: "advancing",
+      },
+      created_at: daysAgo(35),
+    },
+    {
+      prospect_id: ador.id,
+      rep_name: "Sales Rep B",
+      meeting_type: "demo",
+      scheduled_at: daysAgo(24),
+      status: "done",
+      triage_verdict: "go",
+      triage_reason: "Qualified champion, demo with technical samples requested.",
+      brief: {
+        headline: "Demo for Ador: prove an agency can write welding content engineers respect",
+        company_snapshot: "Mumbai welding equipment & consumables manufacturer; distribution-led, invisible on category search.",
+        what_we_know: [
+          "From Sales Rep B's discovery call: end customers searching \"welding automation suppliers\" never find them",
+          "From Sales Rep B's discovery call: burned by a generic content agency in 2023 — engineers rejected the output",
+        ],
+        last_meeting_recap:
+          "Discovery surfaced the category-visibility gap and the 2023 agency burn; Sameer agreed to a demo with welding-specific technical samples.",
+        open_threads: ["Prove technical credibility with real welding content"],
+        likely_objections: ["'Your samples will be generic like the 2023 agency' — lead with application-specific depth"],
+        talk_track: [
+          "Open with the WPS/automation sample pack",
+          "Map content clusters to their product lines",
+          "Close on a bounded pilot scope",
+        ],
+        questions_to_ask: [
+          "Which product line hurts most from invisibility?",
+          "Who needs to approve a pilot?",
+          "What did the 2023 agency get wrong, specifically?",
+        ],
+        watch_out: "The 2023 burn is the deal — every sample must survive an engineer's read.",
+      },
+      raw_notes:
+        "Demo strong. Walked welding-specific samples — Sameer visibly relieved, said 'burn me once with generic content, never again' but agreed ours is different, 2023 objection basically dead. Agreed I'll send pilot scope doc w keyword clusters, deliverables, $/₹ pricing this week. He'll loop procurement (Deepa Iyer) in parallel. Closing call after.",
+      extracted: {
+        summary:
+          "Demo landed: welding-specific samples dissolved the 2023 generic-agency objection, pilot scope document promised, procurement being looped in for a closing call.",
+        pains: [],
+        stakeholders: [{ name: "Deepa Iyer", role: "Procurement Lead", notes: "Being looped in for vendor onboarding" }],
+        objections: [],
+        addressed_objections: [ADOR_OBJECTION],
+        commitments: [{ who: "Rep", what: ADOR_COMMITMENT, when: "this week" }],
+        verbatim_phrases: ["burn me once with generic content, never again"],
+        next_step: "Send pilot scope doc, then closing call with Sameer + procurement",
+        sentiment: "positive",
+        deal_signal: "advancing",
+        stage_suggestion: "closing",
+      },
+      created_at: daysAgo(24),
+    },
+    {
+      prospect_id: ador.id,
+      rep_name: "Sales Rep B",
+      meeting_type: "closing",
+      scheduled_at: daysAgo(12),
+      status: "done",
+      triage_verdict: "go",
+      triage_reason: "Champion + procurement in the room, pilot scope already delivered — right room to close.",
+      brief: {
+        headline: "Close Ador: scope delivered, procurement done, bring the paperwork",
+        company_snapshot: "Mumbai welding manufacturer; pilot scope delivered and procurement onboarding complete.",
+        what_we_know: [
+          "From Sales Rep B's demo call: 2023 generic-agency objection resolved with technical samples",
+          "From Sales Rep B's demo call: pilot scope doc with $/₹ pricing delivered",
+        ],
+        last_meeting_recap: "Demo resolved the credibility objection; pilot scope document was delivered as promised.",
+        open_threads: [],
+        likely_objections: ["Pricing tier confirmation — anchor on the $1,000/mo pilot"],
+        talk_track: ["Confirm scope acceptance", "Agree start date and onboarding", "Confirm $1,000/mo commercial terms"],
+        questions_to_ask: ["Any final concerns before we start?", "Kickoff date?", "Who joins onboarding?"],
+        watch_out: "Procurement is done — don't reopen scope, just land the start date.",
+      },
+      raw_notes:
+        "Closed! Verbal go-ahead at $1000/mo. Deepa confirmed procurement/vendor onboarding complete, PO next week. Sameer wants kickoff w his marketing team in 2 wks. Scope doc accepted as-is.",
+      extracted: {
+        summary:
+          "Verbal go-ahead at $1,000/mo with procurement complete; pilot scope accepted as delivered and kickoff planned with the marketing team.",
+        pains: [],
+        stakeholders: [],
+        objections: [],
+        resolved_commitments: [`Rep: ${ADOR_COMMITMENT}`],
+        commitments: [{ who: "Sameer Kulkarni", what: "Kickoff with marketing team", when: "in 2 weeks" }],
+        verbatim_phrases: [],
+        next_step: "Kickoff — onboarding call with Sameer's marketing team",
+        sentiment: "positive",
+        deal_signal: "advancing",
+        stage_suggestion: "closed_won",
+      },
+      created_at: daysAgo(12),
+    },
+  ]);
+  if (e4m) throw new Error(`ador meetings: ${e4m.message}`);
+
   const { count: pCount } = await db.from("prospects").select("*", { count: "exact", head: true });
   const { count: mCount } = await db.from("meetings").select("*", { count: "exact", head: true });
   console.log(`Done. ${pCount} prospects, ${mCount} meetings seeded.`);

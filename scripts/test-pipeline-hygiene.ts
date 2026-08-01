@@ -63,8 +63,12 @@ async function main() {
     console.log(`${c1 ? "✓" : "✗"} Active deals unchanged with 10 flagged prospects (${before.active} -> ${mid.active})`);
     console.log(`${c2 ? "✓" : "✗"} Flagged-by-triage rose by 10 (${before.flagged} -> ${mid.flagged})`);
 
-    // Archive one via the API
-    const res = await fetch(`${BASE}/api/prospects/${ids[0]}`, { method: "DELETE" });
+    // Archive one via the API (PATCH {archived: true} — DELETE is hard delete)
+    const res = await fetch(`${BASE}/api/prospects/${ids[0]}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: true }),
+    });
     const c3 = res.ok;
     const after = await managerStats();
     const c4 = !after.html.includes("Flagged Test Co 1<") && !after.html.includes("Flagged Test Co 1 ");
@@ -72,7 +76,7 @@ async function main() {
     const repList = await (await fetch(`${BASE}/api/prospects`, { headers: { Cookie: "rep=Sales%20Rep%20A" } })).json();
     const c6 = !repList.prospects.some((p: { id: string }) => p.id === ids[0]);
     if (!c3 || !c4 || !c5 || !c6) failures++;
-    console.log(`${c3 ? "✓" : "✗"} DELETE /api/prospects/:id returned ok`);
+    console.log(`${c3 ? "✓" : "✗"} archive via PATCH returned ok`);
     console.log(`${c4 ? "✓" : "✗"} archived prospect gone from manager table`);
     console.log(`${c5 ? "✓" : "✗"} flagged count dropped by 1 (${mid.flagged} -> ${after.flagged})`);
     console.log(`${c6 ? "✓" : "✗"} archived prospect gone from rep pipeline`);

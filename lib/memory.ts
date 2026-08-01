@@ -37,6 +37,7 @@ export type Memory = {
   relationship_notes?: string[];
   blockers?: string[];
   health_reason?: string | null;
+  ownership_log?: { from: string | null; to: string; at: string }[];
   fit?: Record<string, string>;
   fit_reason?: string | null;
   fit_unknowns?: string[];
