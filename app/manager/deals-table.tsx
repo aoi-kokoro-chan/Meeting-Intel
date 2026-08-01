@@ -559,13 +559,17 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
             ))}
           </div>
         )}
-        {sorted.length > ROW_LIMIT && (
-          <div className="mt-3 text-center">
-            <button onClick={toggleRows} className="text-xs font-medium text-blue-600 hover:underline">
-              {showAllRows ? "Show fewer ▴" : `Show all ${sorted.length} deals ▾`}
-            </button>
-          </div>
-        )}
+        <div className="mt-3 text-center">
+          <button
+            onClick={toggleRows}
+            disabled={sorted.length <= ROW_LIMIT}
+            className={`text-xs font-medium ${
+              sorted.length > ROW_LIMIT ? "text-blue-600 hover:underline" : "cursor-not-allowed text-slate-300"
+            }`}
+          >
+            {showAllRows && sorted.length > ROW_LIMIT ? "Show fewer ▴" : `Show all ${sorted.length} deals ▾`}
+          </button>
+        </div>
       </section>
     </>
   );
