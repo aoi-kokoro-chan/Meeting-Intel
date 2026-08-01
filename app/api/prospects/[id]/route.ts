@@ -26,6 +26,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // Soft archive: the row stays queryable for triage patterns but leaves
       // counts and default views.
       updates.archived_at = new Date().toISOString();
+    } else if (body?.archived === false) {
+      // Restore from the archived view.
+      updates.archived_at = null;
     }
 
     if (body?.owner_rep !== undefined) {

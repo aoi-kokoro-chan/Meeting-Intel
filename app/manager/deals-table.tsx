@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { repColor, repInitial } from "@/lib/reps";
 import type { Memory } from "@/lib/memory";
 import ArchiveButton from "../archive-button";
@@ -151,6 +152,47 @@ function BriefInline({ brief }: { brief: Record<string, unknown> }) {
   );
 }
 
+// Restores an archived prospect (PATCH {archived: false}).
+function RestoreButton({ prospectId }: { prospectId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  async function restore() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/prospects/${prospectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      onClick={restore}
+      disabled={busy}
+      className="text-xs font-medium text-slate-400 hover:text-emerald-700 hover:underline disabled:opacity-50"
+    >
+      {busy ? "Restoring…" : "Restore"}
+    </button>
+  );
+}
+
+const ACTIVITY_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "Activity: All" },
+  { value: "active", label: "Active (last 7 days)" },
+  { value: "quiet", label: "No activity 7+ days" },
+  { value: "archived", label: "Archived" },
+];
+const ACTIVITY_CHIP_LABEL: Record<string, string> = {
+  active: "Active (last 7 days)",
+  quiet: "No activity 7+ days",
+  archived: "Archived",
+};
+
 const selectCls =
   "rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-slate-900 focus:outline-none";
 const chipOn = "border-slate-900 bg-slate-900 text-white";
@@ -161,9 +203,8 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   const [owner, setOwner] = useState("all");
   const [health, setHealth] = useState("all");
   const [stage, setStage] = useState("all");
-  const [inactive7, setInactive7] = useState(false);
+  const [activity, setActivity] = useState<"all" | "active" | "quiet" | "archived">("all");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const [density, setDensity] = useState<"compact" | "full">("compact");
   const [sort, setSort] = useState<{ key: "activity" | "health"; dir: "asc" | "desc" }>({ key: "activity", dir: "desc" });
 
@@ -180,17 +221,24 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
 
   const filtered = useMemo(() => {
     const now = Date.now();
+    const WEEK = 7 * 86400000;
     return prospects.filter((p) => {
-      if (!showArchived && p.archived_at) return false;
+      // Archived scope: only the Archived value shows archived rows.
+      if (activity === "archived") {
+        if (!p.archived_at) return false;
+      } else {
+        if (p.archived_at) return false;
+        if (activity === "active" && now - lastTrackedAt(p) >= WEEK) return false;
+        if (activity === "quiet" && now - lastTrackedAt(p) < WEEK) return false;
+      }
       if (search.trim() && !p.company_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
       if (owner !== "all" && p.owner_rep !== owner) return false;
       if (health !== "all" && p.deal_health !== health) return false;
       if (stage !== "all" && p.stage !== stage) return false;
-      if (inactive7 && now - lastTrackedAt(p) < 7 * 86400000) return false;
       if (flaggedOnly && !isFlagged(p)) return false;
       return true;
     });
-  }, [prospects, search, owner, health, stage, inactive7, flaggedOnly, showArchived]);
+  }, [prospects, search, owner, health, stage, activity, flaggedOnly]);
 
   const sorted = useMemo(() => {
     const rows = [...filtered];
@@ -209,7 +257,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
     return rows;
   }, [filtered, sort]);
 
-  const totalUnderToggle = prospects.filter((p) => showArchived || !p.archived_at).length;
+  const scopeTotal = prospects.filter((p) => (activity === "archived" ? p.archived_at : !p.archived_at)).length;
 
   // Stat cards respect the active filters.
   const stats = [
@@ -234,17 +282,16 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
   if (owner !== "all") activeFilterChips.push({ key: "owner", text: `Owner: ${owner}`, clear: () => setOwner("all") });
   if (health !== "all") activeFilterChips.push({ key: "health", text: `Health: ${label(health)}`, clear: () => setHealth("all") });
   if (stage !== "all") activeFilterChips.push({ key: "stage", text: `Stage: ${label(stage)}`, clear: () => setStage("all") });
-  if (inactive7) activeFilterChips.push({ key: "inactive", text: "Inactive 7+ days", clear: () => setInactive7(false) });
+  if (activity !== "all")
+    activeFilterChips.push({ key: "activity", text: ACTIVITY_CHIP_LABEL[activity], clear: () => setActivity("all") });
   if (flaggedOnly) activeFilterChips.push({ key: "flagged", text: "Flagged by triage", clear: () => setFlaggedOnly(false) });
-  if (showArchived) activeFilterChips.push({ key: "archived", text: "Showing archived", clear: () => setShowArchived(false) });
   const clearAll = () => {
     setSearch("");
     setOwner("all");
     setHealth("all");
     setStage("all");
-    setInactive7(false);
+    setActivity("all");
     setFlaggedOnly(false);
-    setShowArchived(false);
   };
 
   const sortArrow = (key: "activity" | "health") =>
@@ -276,7 +323,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Deals <span className="font-normal normal-case text-slate-400">({sorted.length} shown of {totalUnderToggle})</span>
+            Deals <span className="font-normal normal-case text-slate-400">({sorted.length} shown of {scopeTotal})</span>
           </h2>
           <button onClick={toggleDensity} className="text-xs font-medium text-blue-600 hover:underline">
             {full ? "⊟ Compact table" : "⊞ Expand table"}
@@ -315,27 +362,24 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
               </option>
             ))}
           </select>
-          <button
-            onClick={() => setInactive7(!inactive7)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium ${inactive7 ? chipOn : chipOff}`}
+          <select
+            value={activity}
+            onChange={(e) => setActivity(e.target.value as typeof activity)}
+            className={selectCls}
+            aria-label="Activity"
           >
-            Inactive 7+ days
-          </button>
+            {ACTIVITY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
           <button
             onClick={() => setFlaggedOnly(!flaggedOnly)}
             className={`rounded-full border px-3 py-1 text-xs font-medium ${flaggedOnly ? chipOn : chipOff}`}
           >
             Flagged by triage
           </button>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-              className="accent-slate-900"
-            />
-            Show archived
-          </label>
         </div>
 
         {activeFilterChips.length > 0 && (
@@ -404,7 +448,15 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                   </span>
                   {full && <span className="hidden text-sm capitalize text-slate-600 md:block">{label(p.stage)}</span>}
                   {full && <span className="hidden text-sm text-slate-600 md:block">{p.meetings.length}</span>}
-                  <span className="text-sm text-slate-600">{relativeTime(new Date(lastTrackedAt(p)).toISOString())}</span>
+                  <span className="flex items-center gap-1.5 text-sm text-slate-600">
+                    <span
+                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                        Date.now() - lastTrackedAt(p) < 7 * 86400000 ? "bg-emerald-500" : "bg-slate-300"
+                      }`}
+                      title={`Last activity ${relativeTime(new Date(lastTrackedAt(p)).toISOString())}`}
+                    />
+                    {relativeTime(new Date(lastTrackedAt(p)).toISOString())}
+                  </span>
                   <span className={`text-sm text-slate-600 ${clamp1}`} title={p.memory?.next_step ?? undefined}>
                     {p.memory?.next_step ?? <span className="text-slate-400">— none captured</span>}
                   </span>
@@ -416,7 +468,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                   {full && (
                     <span className="hidden items-center gap-2 md:flex" onClick={(e) => e.preventDefault()}>
                       {isDeletable(p) && <DeleteButton prospectId={p.id} company={p.company_name} />}
-                      {!p.archived_at && <ArchiveButton prospectId={p.id} />}
+                      {p.archived_at ? <RestoreButton prospectId={p.id} /> : <ArchiveButton prospectId={p.id} />}
                     </span>
                   )}
                 </summary>
@@ -426,7 +478,7 @@ export default function DealsTable({ prospects, roster }: { prospects: ProspectR
                     <span className="flex items-center gap-3">
                       <ReassignOwner prospectId={p.id} current={p.owner_rep} roster={roster} />
                       {isDeletable(p) && <DeleteButton prospectId={p.id} company={p.company_name} />}
-                      {!p.archived_at && <ArchiveButton prospectId={p.id} />}
+                      {p.archived_at ? <RestoreButton prospectId={p.id} /> : <ArchiveButton prospectId={p.id} />}
                     </span>
                   </div>
                   {(p.memory?.ownership_log?.length ?? 0) > 0 &&
